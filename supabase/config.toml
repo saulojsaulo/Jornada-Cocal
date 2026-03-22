@@ -1,0 +1,7 @@
+project_id = "uewhtmagmftsyzzbeuux"
+
+[functions.autotrac-sync]
+verify_jwt = false
+
+[functions.telemetry-sync]
+verify_jwt = false

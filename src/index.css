@@ -1,0 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 14% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 142 64% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 142 64% 38%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 86%;
+    --input: 220 13% 86%;
+    --ring: 142 64% 38%;
+
+    --radius: 0.5rem;
+
+    --header-bg: 0 0% 0%;
+    --header-fg: 210 40% 96%;
+
+    /* Journey status colors */
+    --status-journey: 142 55% 49%;
+    --status-journey-bg: 142 55% 92%;
+    --status-meal: 38 70% 60%;
+    --status-meal-bg: 38 70% 93%;
+    --status-rest: 300 40% 60%;
+    --status-rest-bg: 300 40% 93%;
+    --status-complement: 210 70% 55%;
+    --status-complement-bg: 210 70% 92%;
+    --status-end: 25 80% 55%;
+    --status-end-bg: 25 80% 92%;
+    --status-interjournada: 220 10% 96%;
+    --status-inactive: 220 10% 92%;
+
+    --alert-warning: 45 93% 47%;
+    --alert-danger: 0 72% 51%;
+    --alert-info: 210 70% 55%;
+
+    --chart-1: 220 70% 45%;
+    --chart-2: 142 55% 49%;
+    --chart-3: 38 70% 60%;
+    --chart-4: 300 40% 60%;
+    --chart-5: 0 72% 51%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 142 64% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 142 64% 38%;
+
+    --glow-primary: 142 64% 38%;
+    --surface-glass: 220 14% 96%;
+    --surface-glass-hover: 220 14% 93%;
+    --warning: 45 93% 47%;
+    --danger: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+
+  ::selection {
+    background: hsl(142, 64%, 38%, 0.15);
+    color: hsl(222, 47%, 11%);
+  }
+}
+
+@layer components {
+  .status-row-journey { background-color: hsl(var(--status-journey-bg) / 0.7); }
+  .status-row-meal { background-color: hsl(var(--status-meal-bg) / 0.7); }
+  .status-row-rest { background-color: hsl(var(--status-rest-bg) / 0.7); }
+  .status-row-complement { background-color: hsl(var(--status-complement-bg) / 0.7); }
+  .status-row-end { background-color: hsl(var(--status-end-bg) / 0.7); }
+
+  .card-surface {
+    background: hsl(var(--card));
+    box-shadow: 0 0 0 1px hsl(var(--border)), 0 4px 12px -2px rgba(0,0,0,0.06), 0 2px 4px -1px rgba(0,0,0,0.04);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .card-surface:hover {
+    background: hsl(var(--surface-glass-hover));
+    box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 20px -4px rgba(0,0,0,0.1), 0 4px 8px -2px rgba(0,0,0,0.06);
+  }
+
+  .glow-green { box-shadow: 0 4px 14px hsla(142,64%,38%,0.3), 0 1px 3px hsla(142,64%,38%,0.15); }
+  .glow-green-intense { box-shadow: 0 8px 24px hsla(142,64%,38%,0.35), 0 2px 6px hsla(142,64%,38%,0.2); }
+
+  .text-gradient-green {
+    background: linear-gradient(135deg, hsl(142,64%,38%), hsl(142,70%,28%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .border-glow { border: 1px solid hsl(var(--border)); }
+  .section-spacing { @apply py-24 md:py-32; }
+  .font-mono-data { font-family: 'Geist Mono', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  .bg-grid-pattern {
+    background-image: linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  @keyframes pulse-live {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.5); }
+  }
+  .animate-pulse-live { animation: pulse-live 2s ease-in-out infinite; }
+
+  .gradient-border { position: relative; border: none; }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, hsla(142,64%,38%,0.25), transparent 50%, hsla(142,64%,38%,0.1));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}

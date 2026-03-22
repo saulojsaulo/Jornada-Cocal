@@ -1,0 +1,2 @@
+ALTER TABLE public.macro_overrides DROP CONSTRAINT macro_overrides_action_check;
+ALTER TABLE public.macro_overrides ADD CONSTRAINT macro_overrides_action_check CHECK (action = ANY (ARRAY['insert'::text, 'edit'::text, 'delete'::text, 'folga'::text, 'falta'::text, 'atestado'::text, 'afastamento'::text]));
