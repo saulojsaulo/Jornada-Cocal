@@ -204,9 +204,13 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       setVehicles(mappedVehicles);
 
       // Fetch events from local autotrac_eventos with fallback window
-      const fetchEventsByWindow = async (daysWindow: number, pageSize: number = 600) => {
+      const fetchEventsByWindow = async (daysWindow: number, pageSize: number = 600, includeDriverPassword = true) => {
         const start = new Date();
         start.setDate(start.getDate() - daysWindow);
+
+        const fields = includeDriverPassword
+          ? "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password"
+          : "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude";
 
         let all: any[] = [];
         let from = 0;
@@ -214,7 +218,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         while (true) {
           const { data: page, error: eErr } = await runWithTimeout<any>((supabase as any)
             .from("autotrac_eventos")
-            .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password")
+            .select(fields)
             .gte("message_time", start.toISOString())
             .order("message_time", { ascending: true })
             .range(from, from + pageSize - 1));
@@ -231,25 +235,51 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
 
       let eventsWindowDays = 7;
       let allEvents: any[] = [];
+      let hasDriverPassword = true;
 
       try {
-        allEvents = await fetchEventsByWindow(eventsWindowDays, 600);
-      } catch (primaryErr) {
-        if (!isBackendUnavailableError(primaryErr)) throw primaryErr;
-        eventsWindowDays = 2;
-        allEvents = await fetchEventsByWindow(eventsWindowDays, 400);
+        allEvents = await fetchEventsByWindow(eventsWindowDays, 600, true);
+      } catch (primaryErr: any) {
+        // If the error is a missing column (migration not applied yet), retry without it
+        const errMsg = String(primaryErr?.message || primaryErr).toLowerCase();
+        if (errMsg.includes("driver_password") || errMsg.includes("column") || errMsg.includes("does not exist")) {
+          hasDriverPassword = false;
+          try {
+            allEvents = await fetchEventsByWindow(eventsWindowDays, 600, false);
+          } catch (fallbackErr) {
+            if (!isBackendUnavailableError(fallbackErr)) throw fallbackErr;
+            eventsWindowDays = 2;
+            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, false);
+          }
+        } else if (!isBackendUnavailableError(primaryErr)) {
+          throw primaryErr;
+        } else {
+          eventsWindowDays = 2;
+          try {
+            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, true);
+          } catch {
+            hasDriverPassword = false;
+            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, false);
+          }
+        }
       }
 
-      // Build a senha→driver lookup map from motoristas table
-      const { data: motoristasData } = await runWithTimeout<any>((supabase as any)
-        .from("motoristas")
-        .select("id, nome, senha")
-        .eq("ativo", true));
-
+      // Build a senha→driver lookup map from motoristas table (gracefully: column may not exist yet)
       const driverBySenha = new Map<string, { id: string; nome: string }>();
-      if (motoristasData) {
-        for (const mot of motoristasData) {
-          if (mot.senha) driverBySenha.set(mot.senha, { id: mot.id, nome: mot.nome });
+      if (hasDriverPassword) {
+        try {
+          const { data: motoristasData } = await runWithTimeout<any>((supabase as any)
+            .from("motoristas")
+            .select("id, nome, senha")
+            .eq("ativo", true));
+
+          if (motoristasData) {
+            for (const mot of motoristasData) {
+              if (mot.senha) driverBySenha.set(mot.senha, { id: mot.id, nome: mot.nome });
+            }
+          }
+        } catch {
+          // senha column not yet migrated — skip driver identification silently
         }
       }
 
