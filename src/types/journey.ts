@@ -43,6 +43,8 @@ export interface MacroEvent {
   endereco?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  driverId?: string | null;
+  driverName?: string | null;
 }
 
 export type MacroNumber = 1 | 2 | 3 | 4 | 5 | 6 | 9 | 10;
@@ -95,6 +97,8 @@ export const STATUS_ROW_CLASSES: Record<VehicleStatus, string> = {
 export interface Journey {
   id: string;
   vehicleId: string;
+  driverId: string;
+  driverName: string | null;
   startTime: Date;
   endTime: Date | null;
   macros: MacroEvent[];

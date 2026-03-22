@@ -12,8 +12,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
-interface VehicleRowData {
-  vehicle: Vehicle;
+interface DriverRowData {
+  driverId: string;
+  driverName: string;
+  vehicleName: string; // last vehicle used
+  vehicle: Vehicle | null; // for position and other lookups
   journeys: Journey[];
   todayJourney: Journey | null;
   prevJourney: Journey | null;
@@ -23,36 +26,55 @@ interface VehicleRowData {
 }
 
 export default function ControleTab() {
-  const { vehicles, events, getVehicleJourneys, selectedDate, folgaVehicles, toggleFolga, vehiclePositions, getDayMark } = useJourneyStore();
+  const { vehicles, getAllJourneys, selectedDate, folgaVehicles, toggleFolga, vehiclePositions, getDayMark } = useJourneyStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showPrevDay, setShowPrevDay] = useState<Record<string, boolean>>({});
-  const [sortField, setSortField] = useState<string>("vehicle");
+  const [sortField, setSortField] = useState<string>("driver");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterGestores, setFilterGestores] = useState<Set<string>>(new Set());
   const [filterAlertType, setFilterAlertType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  // Update `now` every 30 seconds so journey calculations stay fresh
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const rows = useMemo<VehicleRowData[]>(() => {
-    return vehicles.map((v) => {
-      const journeys = getVehicleJourneys(v.id);
-      
-      const todayJourney = getJourneyForDate(journeys, selectedDate, now);
+  const vehicleById = useMemo(() => {
+    const m = new Map<string, Vehicle>();
+    for (const v of vehicles) m.set(v.id, v);
+    return m;
+  }, [vehicles]);
 
-      // Jornada anterior real para cálculo de interjornada
+  const rows = useMemo<DriverRowData[]>(() => {
+    const allJourneys = getAllJourneys();
+    // Group journeys by driverId
+    const byDriver = new Map<string, Journey[]>();
+    for (const j of allJourneys) {
+      const key = j.driverId || `vehicle_${j.vehicleId}`;
+      if (!byDriver.has(key)) byDriver.set(key, []);
+      byDriver.get(key)!.push(j);
+    }
+
+    return Array.from(byDriver.entries()).map(([driverId, journeys]) => {
+      const sortedByTime = [...journeys].sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+      const latestJourney = sortedByTime[0];
+      const driverName = latestJourney?.driverName || driverId;
+      const vehicleId = latestJourney?.vehicleId || "";
+      const vehicle = vehicleById.get(vehicleId) || null;
+      const vehicleName = vehicle?.name || vehicleId;
+
+      const todayJourney = journeys
+        .filter(j => j.date === selectedDate)
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+        .at(-1) ?? null;
+
       const prevJourney = todayJourney
-        ? (() => {
-            const previous = journeys
-              .filter((j) => j.id !== todayJourney.id && j.startTime.getTime() < todayJourney.startTime.getTime())
-              .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-            return previous.length > 0 ? previous[previous.length - 1] : null;
-          })()
+        ? journeys
+            .filter(j => j.id !== todayJourney.id && j.startTime.getTime() < todayJourney.startTime.getTime())
+            .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+            .at(-1) ?? null
         : null;
 
       let calc: JourneyCalculation | null = null;
@@ -65,35 +87,25 @@ export default function ControleTab() {
         calc.interjournadaAlert = inter.alert;
         calc.interjournadaMinutes = inter.minutes;
 
-        const sortedMacros = [...todayJourney.macros].sort(
-          (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
-        );
-        const lastMacro = sortedMacros.length > 0
-          ? sortedMacros[sortedMacros.length - 1]
-          : null;
-
+        const sortedMacros = [...todayJourney.macros].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        const lastMacro = sortedMacros.at(-1);
         if (lastMacro) lastEventTime = lastMacro.createdAt;
 
-        // Calculate continuous driving: time since last drive-resume macro without a pause
-        // Drive-resume macros: M1 (start), M4 (end meal), M6 (end rest), M10 (end complement)
         const driveResumeMacros = [1, 4, 6, 10];
-        const pauseStartMacros = [2, 3, 5, 9]; // M2 end, M3 meal, M5 rest, M9 complement
+        const pauseStartMacros = [2, 3, 5, 9];
         let lastDriveStart: Date | null = null;
         for (const m of sortedMacros) {
-          if (driveResumeMacros.includes(m.macroNumber)) {
-            lastDriveStart = m.createdAt;
-          } else if (pauseStartMacros.includes(m.macroNumber)) {
-            lastDriveStart = null;
-          }
+          if (driveResumeMacros.includes(m.macroNumber)) lastDriveStart = m.createdAt;
+          else if (pauseStartMacros.includes(m.macroNumber)) lastDriveStart = null;
         }
         if (lastDriveStart && calc.status === "em_jornada") {
           continuousDrivingMinutes = (now.getTime() - lastDriveStart.getTime()) / 60000;
         }
       }
 
-      return { vehicle: v, journeys, todayJourney, prevJourney, calc, lastEventTime, continuousDrivingMinutes };
+      return { driverId, driverName, vehicleName, vehicle, journeys, todayJourney, prevJourney, calc, lastEventTime, continuousDrivingMinutes };
     });
-  }, [vehicles, getVehicleJourneys, selectedDate, now]);
+  }, [getAllJourneys, vehicles, vehicleById, selectedDate, now]);
 
   // Get unique gestor names for filter
   const gestorList = useMemo(() => {
@@ -107,18 +119,13 @@ export default function ControleTab() {
   const filteredRows = useMemo(() => {
     let r = rows;
 
-    // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      r = r.filter((row) => {
-        const numOnly = row.vehicle.name.replace(/\D/g, "");
-        return (
-          numOnly.includes(q) ||
-          row.vehicle.name.toLowerCase().includes(q) ||
-          (row.vehicle.driverName && row.vehicle.driverName.toLowerCase().includes(q)) ||
-          (row.vehicle.gestorName && row.vehicle.gestorName.toLowerCase().includes(q))
-        );
-      });
+      r = r.filter((row) =>
+        row.driverName.toLowerCase().includes(q) ||
+        row.vehicleName.toLowerCase().includes(q) ||
+        row.vehicleName.replace(/\D/g, "").includes(q)
+      );
     }
 
     if (filterStatus === "alertas") {
@@ -126,14 +133,13 @@ export default function ControleTab() {
     } else if (filterStatus !== "all") {
       r = r.filter((row) => {
         if (filterStatus === "em_folga") {
-          const mark = getDayMark(row.vehicle.id, selectedDate);
-          return folgaVehicles.has(row.vehicle.id) || (mark && mark.type === "folga");
+          const mark = getDayMark(row.driverId, selectedDate);
+          return folgaVehicles.has(row.driverId) || (mark && mark.type === "folga");
         }
         return (row.calc?.status || "em_interjornada") === filterStatus;
       });
     }
 
-    // Alert type filter
     if (filterAlertType === "refeicao") {
       r = r.filter((row) => row.calc?.mealAlert);
     } else if (filterAlertType === "interjornada_8h") {
@@ -147,21 +153,11 @@ export default function ControleTab() {
       r = r.filter((row) => row.continuousDrivingMinutes >= 330);
     }
 
-    // Gestor filter
-    if (filterGestores.size > 0) {
-      r = r.filter((row) => row.vehicle.gestorName && filterGestores.has(row.vehicle.gestorName));
-    }
-
     r.sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
-        case "vehicle": {
-          const numA = parseInt(a.vehicle.name.replace(/\D/g, "")) || 0;
-          const numB = parseInt(b.vehicle.name.replace(/\D/g, "")) || 0;
-          cmp = numA - numB;
-          break;
-        }
-        case "gestor": cmp = (a.vehicle.gestorName || "").localeCompare(b.vehicle.gestorName || ""); break;
+        case "driver": cmp = a.driverName.localeCompare(b.driverName); break;
+        case "vehicle": cmp = a.vehicleName.localeCompare(b.vehicleName); break;
         case "status": cmp = (a.calc?.status || "").localeCompare(b.calc?.status || ""); break;
         case "jornada": cmp = (a.calc?.netMinutes || 0) - (b.calc?.netMinutes || 0); break;
         case "extras": cmp = (a.calc?.overtimeMinutes || 0) - (b.calc?.overtimeMinutes || 0); break;
@@ -169,7 +165,7 @@ export default function ControleTab() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return r;
-  }, [rows, filterStatus, filterAlertType, filterGestores, sortField, sortDir, searchQuery, folgaVehicles, getDayMark, selectedDate]);
+  }, [rows, filterStatus, filterAlertType, sortField, sortDir, searchQuery, folgaVehicles, getDayMark, selectedDate]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -205,7 +201,7 @@ export default function ControleTab() {
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Buscar veículo..."
+            placeholder="Buscar motorista ou frota..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 text-xs border rounded-md bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
@@ -251,6 +247,7 @@ export default function ControleTab() {
           onChange={(e) => { setSortField(e.target.value); setSortDir("asc"); }}
           className="text-xs border rounded-md px-2 py-1.5 bg-card text-foreground"
         >
+          <option value="driver">Ordenar: Motorista</option>
           <option value="vehicle">Ordenar: Frota</option>
           <option value="gestor">Ordenar: Gestor</option>
           <option value="status">Ordenar: Status</option>
@@ -278,7 +275,7 @@ export default function ControleTab() {
           <option value="direcao_5h30">🚛 Em Direção &gt; 05h30m</option>
         </select>
 
-        <span className="text-[11px] text-muted-foreground ml-auto tabular-nums font-medium">{filteredRows.length} veículo(s)</span>
+        <span className="text-[11px] text-muted-foreground ml-auto tabular-nums font-medium">{filteredRows.length} motorista(s)</span>
       </div>
 
       {/* Grid */}
@@ -287,9 +284,8 @@ export default function ControleTab() {
           <thead className="border-b bg-muted/50">
             <tr>
               <th className="w-6 px-1" />
-              <SortHeader field="gestor">Gestor</SortHeader>
-              <SortHeader field="vehicle">Frota</SortHeader>
-              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Motorista</th>
+              <SortHeader field="driver">Motorista</SortHeader>
+              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Último Veículo</th>
               <SortHeader field="status">Status</SortHeader>
               <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Última Posição</th>
               <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Data/Hora</th>
@@ -302,31 +298,25 @@ export default function ControleTab() {
           </thead>
           <tbody>
             {filteredRows.map((row) => {
-              const isExpanded = expandedIds.has(row.vehicle.id);
-              const status = row.calc?.status || "em_interjornada";
-
+              const isExpanded = expandedIds.has(row.driverId);
               return (
                 <RowGroup
-                  key={row.vehicle.id}
+                  key={row.driverId}
                   row={row}
                   isExpanded={isExpanded}
-                  onToggle={() => toggleExpand(row.vehicle.id)}
-                  showPrevDay={showPrevDay[row.vehicle.id] ?? true}
-                  onTogglePrevDay={() => setShowPrevDay(p => ({ ...p, [row.vehicle.id]: !(p[row.vehicle.id] ?? true) }))}
+                  onToggle={() => setExpandedIds(prev => { const n = new Set(prev); n.has(row.driverId) ? n.delete(row.driverId) : n.add(row.driverId); return n; })}
+                  showPrevDay={showPrevDay[row.driverId] ?? true}
+                  onTogglePrevDay={() => setShowPrevDay(p => ({ ...p, [row.driverId]: !(p[row.driverId] ?? true) }))}
                   selectedDate={selectedDate}
-                  vehiclePosition={vehiclePositions.get(row.vehicle.id) || vehiclePositions.get(row.vehicle.numeroFrota) || null}
-                  isFolga={folgaVehicles.has(row.vehicle.id) || !!(getDayMark(row.vehicle.id, selectedDate)?.type === "folga")}
-                  dayMark={getDayMark(row.vehicle.id, selectedDate)}
-                  onToggleFolga={() => toggleFolga(row.vehicle.id)}
+                  vehiclePosition={row.vehicle ? (vehiclePositions.get(row.vehicle.id) || null) : null}
+                  isFolga={folgaVehicles.has(row.driverId) || !!(getDayMark(row.driverId, selectedDate)?.type === "folga")}
+                  dayMark={getDayMark(row.driverId, selectedDate)}
+                  onToggleFolga={() => toggleFolga(row.driverId)}
                 />
               );
             })}
             {filteredRows.length === 0 && (
-              <tr>
-                <td colSpan={12} className="text-center py-12 text-muted-foreground">
-                  Nenhum veículo encontrado. Importe um arquivo XLSX para começar.
-                </td>
-              </tr>
+              <tr><td colSpan={11} className="text-center py-12 text-muted-foreground">Nenhum motorista com macros identificadas encontrado.</td></tr>
             )}
           </tbody>
         </table>
@@ -347,7 +337,7 @@ function RowGroup({
   dayMark,
   onToggleFolga,
 }: {
-  row: VehicleRowData;
+  row: DriverRowData;
   isExpanded: boolean;
   onToggle: () => void;
   showPrevDay: boolean;
@@ -390,9 +380,8 @@ function RowGroup({
             : <ChevronRight className="h-3 w-3 text-muted-foreground" />
           }
         </td>
-        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate" title={row.vehicle.gestorName || "—"}>{row.vehicle.gestorName || "—"}</td>
-        <td className="px-2 py-0 font-bold font-mono text-xs">{row.vehicle.name.replace(/\D/g, "") || "—"}</td>
-        <td className="px-2 py-0 text-[11px] max-w-[220px] truncate" title={row.vehicle.driverName || "—"}>{row.vehicle.driverName || "—"}</td>
+        <td className="px-2 py-0 font-semibold text-[11px] max-w-[220px] truncate" title={row.driverName}>{row.driverName}</td>
+        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
         <td className="px-2 py-0">
           {hasDayMark ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-800 border border-yellow-300" title={dayMark.reason}>
@@ -474,7 +463,7 @@ function ExpandedDetails({
   onTogglePrevDay,
   selectedDate,
 }: {
-  row: VehicleRowData;
+  row: DriverRowData;
   calc: JourneyCalculation | null;
   timeline: any[];
   showPrevDay: boolean;
@@ -540,7 +529,7 @@ function ExpandedDetails({
     const byMinute = new Map<string, string>();
 
     for (const evt of events) {
-      if (evt.vehicleId !== row.vehicle.id) continue;
+      if (evt.driverId !== row.driverId) continue;
       if (!hasAddress(evt.endereco)) continue;
 
       const endereco = evt.endereco.trim();
@@ -568,7 +557,7 @@ function ExpandedDetails({
         null
       );
     };
-  }, [events, row.vehicle.id]);
+  }, [events, row.driverId]);
 
   return (
     <div className="space-y-2.5">

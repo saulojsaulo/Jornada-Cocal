@@ -10,6 +10,7 @@ interface Motorista {
   nome: string;
   cpf: string | null;
   telefone: string | null;
+  senha: string | null;
   ativo: boolean;
 }
 
@@ -17,9 +18,10 @@ interface MotoristaForm {
   nome: string;
   cpf: string;
   telefone: string;
+  senha: string;
 }
 
-const emptyForm: MotoristaForm = { nome: "", cpf: "", telefone: "" };
+const emptyForm: MotoristaForm = { nome: "", cpf: "", telefone: "", senha: "" };
 
 export default function CadastroMotoristaTab() {
   const [motoristas, setMotoristas] = useState<Motorista[]>([]);
@@ -58,6 +60,7 @@ export default function CadastroMotoristaTab() {
       nome: form.nome.trim(),
       cpf: form.cpf.trim() || null,
       telefone: form.telefone.trim() || null,
+      senha: form.senha.trim() || null,
       ativo: true,
     } as any);
     setSaving(false);
@@ -138,10 +141,11 @@ export default function CadastroMotoristaTab() {
       {isAdding && (
         <div className="bg-card border rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-semibold">Novo Motorista</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <input placeholder="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input placeholder="CPF" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input placeholder="Telefone" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
+            <input placeholder="Senha (Autotrac)" value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background font-mono" />
           </div>
           <div className="flex gap-2">
             <button onClick={handleAdd} disabled={saving} className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50">
@@ -161,6 +165,7 @@ export default function CadastroMotoristaTab() {
               <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Nome</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">CPF</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Telefone</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Senha</th>
               <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground w-24">Ações</th>
             </tr>
           </thead>
@@ -170,6 +175,7 @@ export default function CadastroMotoristaTab() {
                 <td className="px-3 py-1.5 font-medium">{m.nome}</td>
                 <td className="px-3 py-1.5 font-mono text-xs">{m.cpf || "—"}</td>
                 <td className="px-3 py-1.5 text-xs">{m.telefone || "—"}</td>
+                <td className="px-3 py-1.5 font-mono text-xs">{m.senha ? "••••••" : "—"}</td>
                 <td className="px-3 py-1.5 text-center">
                   <button onClick={() => handleDelete(m.id)} className="text-destructive hover:text-destructive/80 p-1" title="Desativar">
                     <Trash2 className="h-3.5 w-3.5" />

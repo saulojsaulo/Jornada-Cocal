@@ -109,6 +109,8 @@ export function buildJourneys(events: MacroEvent[]): Journey[] {
       journeys.push({
         id: jId,
         vehicleId: sortedGroup[0].vehicleId,
+        driverId: sortedGroup[0].driverId || "unknown",
+        driverName: sortedGroup[0].driverName || null,
         startTime: macro1?.createdAt || macrosFromStart[0].createdAt,
         endTime: macro2?.createdAt || null,
         macros: macrosFromStart,
@@ -200,6 +202,8 @@ function buildJourneysSequential(events: MacroEvent[]): Journey[] {
       current = {
         id: generateId(),
         vehicleId: evt.vehicleId,
+        driverId: evt.driverId || "unknown",
+        driverName: evt.driverName || null,
         startTime: evt.createdAt,
         endTime: null,
         macros: [evt],

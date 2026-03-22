@@ -21,6 +21,7 @@ interface JourneyStore {
   addEvents: (newEvents: { vehicleName: string; macroNumber: MacroNumber; createdAt: Date }[]) => { added: number; skipped: number };
   getVehicleEvents: (vehicleId: string) => MacroEvent[];
   getVehicleJourneys: (vehicleId: string) => Journey[];
+  getDriverJourneys: (driverId: string) => Journey[];
   getAllJourneys: () => Journey[];
   clearData: () => void;
   isLoading: boolean;
@@ -88,6 +89,7 @@ const HMR_FALLBACK_STORE: JourneyStore = {
   addEvents: () => ({ added: 0, skipped: 0 }),
   getVehicleEvents: () => [],
   getVehicleJourneys: () => [],
+  getDriverJourneys: () => [],
   getAllJourneys: () => [],
   clearData: () => {},
   isLoading: true,
@@ -212,7 +214,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         while (true) {
           const { data: page, error: eErr } = await runWithTimeout<any>((supabase as any)
             .from("autotrac_eventos")
-            .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude")
+            .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password")
             .gte("message_time", start.toISOString())
             .order("message_time", { ascending: true })
             .range(from, from + pageSize - 1));
@@ -238,18 +240,36 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         allEvents = await fetchEventsByWindow(eventsWindowDays, 400);
       }
 
+      // Build a senha→driver lookup map from motoristas table
+      const { data: motoristasData } = await runWithTimeout<any>((supabase as any)
+        .from("motoristas")
+        .select("id, nome, senha")
+        .eq("ativo", true));
+
+      const driverBySenha = new Map<string, { id: string; nome: string }>();
+      if (motoristasData) {
+        for (const mot of motoristasData) {
+          if (mot.senha) driverBySenha.set(mot.senha, { id: mot.id, nome: mot.nome });
+        }
+      }
+
       const mappedEvents: MacroEvent[] = allEvents
         .filter((e: any) => VALID_MACROS.has(e.macro_number))
-        .map((e: any) => ({
-          id: e.id,
-          vehicleId: String(e.vehicle_code),
-          macroNumber: e.macro_number as MacroNumber,
-          createdAt: new Date(e.message_time),
-          endereco: e.landmark || null,
-          latitude: e.latitude ? Number(e.latitude) : null,
-          longitude: e.longitude ? Number(e.longitude) : null,
-          dataJornada: toDateKey(new Date(e.message_time)),
-        }));
+        .map((e: any) => {
+          const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
+          return {
+            id: e.id,
+            vehicleId: String(e.vehicle_code),
+            macroNumber: e.macro_number as MacroNumber,
+            createdAt: new Date(e.message_time),
+            endereco: e.landmark || null,
+            latitude: e.latitude ? Number(e.latitude) : null,
+            longitude: e.longitude ? Number(e.longitude) : null,
+            dataJornada: toDateKey(new Date(e.message_time)),
+            driverId: driver?.id || null,
+            driverName: driver?.nome || null,
+          };
+        });
 
       // Deduplicate by vehicle+macro+timestamp
       const keyMap = new Map<string, number>();
@@ -491,14 +511,22 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     [events]
   );
 
+  const getDriverJourneys = useCallback(
+    (driverId: string) => buildJourneys(events.filter((e) => e.driverId === driverId)),
+    [events]
+  );
+
   const getAllJourneys = useCallback(() => {
-    const byVehicle = new Map<string, MacroEvent[]>();
+    // Group events by driverId (primary) for driver-centric journey building.
+    // Events without a driver fall back to vehicle grouping.
+    const byDriver = new Map<string, MacroEvent[]>();
     for (const e of events) {
-      if (!byVehicle.has(e.vehicleId)) byVehicle.set(e.vehicleId, []);
-      byVehicle.get(e.vehicleId)!.push(e);
+      const key = e.driverId || `vehicle_${e.vehicleId}`;
+      if (!byDriver.has(key)) byDriver.set(key, []);
+      byDriver.get(key)!.push(e);
     }
     const all: Journey[] = [];
-    for (const [, evts] of byVehicle) {
+    for (const [, evts] of byDriver) {
       all.push(...buildJourneys(evts));
     }
     return all;
@@ -530,12 +558,12 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       vehicles, events, selectedDate, setSelectedDate, addEvents,
-      getVehicleEvents, getVehicleJourneys, getAllJourneys, clearData,
+      getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData,
       isLoading, isSyncing, error, folgaVehicles, toggleFolga,
       vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac,
       dayMarks, getDayMark,
     }),
-    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, getDayMark]
+    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, getDayMark]
   );
 
   return <JourneyContext.Provider value={value}>{children}</JourneyContext.Provider>;

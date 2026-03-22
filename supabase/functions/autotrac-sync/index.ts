@@ -173,21 +173,28 @@ Deno.serve(async (req) => {
           const macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
 
           if (macroEvents.length > 0) {
-            const eventRows = macroEvents.map((m) => ({
-              autotrac_id: m.ID,
-              vehicle_code: vehicle.Code,
-              account_number: m.AccountNumber,
-              macro_number: m.MacroNumber,
-              macro_version: m.MacroVersion,
-              message_time: m.MessageTime,
-              latitude: m.Latitude,
-              longitude: m.Longitude,
-              landmark: m.Landmark || null,
-              ignition: m.Ignition,
-              position_time: m.PositionTime || null,
-              vehicle_address: m.VehicleAddress,
-              raw_data: m as unknown as Record<string, unknown>,
-            }));
+            const eventRows = macroEvents.map((m) => {
+              // Extract driver password from MessageText format: "_XXXXXX ..."
+              const passwordMatch = (m.MessageText || "").match(/^_(\w+)/);
+              const driverPassword = passwordMatch ? passwordMatch[1] : null;
+
+              return {
+                autotrac_id: m.ID,
+                vehicle_code: vehicle.Code,
+                account_number: m.AccountNumber,
+                macro_number: m.MacroNumber,
+                macro_version: m.MacroVersion,
+                message_time: m.MessageTime,
+                latitude: m.Latitude,
+                longitude: m.Longitude,
+                landmark: m.Landmark || null,
+                ignition: m.Ignition,
+                position_time: m.PositionTime || null,
+                vehicle_address: m.VehicleAddress,
+                driver_password: driverPassword,
+                raw_data: m as unknown as Record<string, unknown>,
+              };
+            });
 
             const { error: eErr } = await supabase
               .from("autotrac_eventos")
