@@ -455,7 +455,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     try {
       toast.info("Sincronizando com Autotrac...");
 
-      const { data, error: fnErr } = await runWithTimeout<any>(supabase.functions.invoke("autotrac-sync"));
+      const { data, error: fnErr } = await runWithTimeout<any>(supabase.functions.invoke("autotrac-sync"), 60_000); // 60s timeout
 
       if (fnErr) throw fnErr;
 

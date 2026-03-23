@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, Trash2, Save, X, Upload } from "lucide-react";
+import { Search, Plus, Trash2, Save, X, Upload, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -29,6 +29,7 @@ export default function CadastroMotoristaTab() {
   const [searchQuery, setSearchQuery] = useState("");
   const [form, setForm] = useState<MotoristaForm>(emptyForm);
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,20 +54,32 @@ export default function CadastroMotoristaTab() {
     return motoristas.filter((m) => m.nome.toLowerCase().includes(q) || m.cpf?.includes(q));
   }, [motoristas, searchQuery]);
 
-  const handleAdd = async () => {
+  const handleSave = async () => {
     if (!form.nome.trim()) { toast.error("Nome é obrigatório"); return; }
     setSaving(true);
-    const { error } = await supabase.from("motoristas").insert({
+    
+    const payload = {
       nome: form.nome.trim(),
       cpf: form.cpf.trim() || null,
       telefone: form.telefone.trim() || null,
       senha: form.senha.trim() || null,
       ativo: true,
-    } as any);
-    setSaving(false);
-    if (error) { toast.error("Erro: " + error.message); return; }
-    toast.success("Motorista cadastrado");
+    };
+
+    if (editingId) {
+      const { error } = await supabase.from("motoristas").update(payload as any).eq("id", editingId);
+      setSaving(false);
+      if (error) { toast.error("Erro ao atualizar: " + error.message); return; }
+      toast.success("Motorista atualizado");
+    } else {
+      const { error } = await supabase.from("motoristas").insert(payload as any);
+      setSaving(false);
+      if (error) { toast.error("Erro ao cadastrar: " + error.message); return; }
+      toast.success("Motorista cadastrado");
+    }
+
     setForm(emptyForm);
+    setEditingId(null);
     setIsAdding(false);
     fetchMotoristas();
   };
@@ -126,7 +139,7 @@ export default function CadastroMotoristaTab() {
           <button onClick={() => fileInputRef.current?.click()} disabled={importing} className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted disabled:opacity-50">
             <Upload className="h-4 w-4" /> {importing ? "Importando..." : "Importar XLSX"}
           </button>
-          <button onClick={() => { setIsAdding(true); setForm(emptyForm); }} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90">
+          <button onClick={() => { setIsAdding(true); setEditingId(null); setForm(emptyForm); }} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90">
             <Plus className="h-4 w-4" /> Novo Motorista
           </button>
         </div>
@@ -140,7 +153,7 @@ export default function CadastroMotoristaTab() {
 
       {isAdding && (
         <div className="bg-card border rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Novo Motorista</h3>
+          <h3 className="text-sm font-semibold">{editingId ? "Editar Motorista" : "Novo Motorista"}</h3>
           <div className="grid grid-cols-4 gap-3">
             <input placeholder="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input placeholder="CPF" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
@@ -148,10 +161,10 @@ export default function CadastroMotoristaTab() {
             <input placeholder="Senha (Autotrac)" value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background font-mono" />
           </div>
           <div className="flex gap-2">
-            <button onClick={handleAdd} disabled={saving} className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50">
+            <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50">
               <Save className="h-3.5 w-3.5" /> {saving ? "Salvando..." : "Salvar"}
             </button>
-            <button onClick={() => setIsAdding(false)} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg text-sm hover:bg-muted">
+            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg text-sm hover:bg-muted">
               <X className="h-3.5 w-3.5" /> Cancelar
             </button>
           </div>
@@ -176,7 +189,14 @@ export default function CadastroMotoristaTab() {
                 <td className="px-3 py-1.5 font-mono text-xs">{m.cpf || "—"}</td>
                 <td className="px-3 py-1.5 text-xs">{m.telefone || "—"}</td>
                 <td className="px-3 py-1.5 font-mono text-xs">{m.senha ? "••••••" : "—"}</td>
-                <td className="px-3 py-1.5 text-center">
+                <td className="px-3 py-1.5 text-center flex items-center justify-center gap-1.5">
+                  <button onClick={() => {
+                    setForm({ nome: m.nome, cpf: m.cpf || "", telefone: m.telefone || "", senha: m.senha || "" });
+                    setEditingId(m.id);
+                    setIsAdding(true);
+                  }} className="text-muted-foreground hover:text-primary p-1" title="Editar">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                   <button onClick={() => handleDelete(m.id)} className="text-destructive hover:text-destructive/80 p-1" title="Desativar">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
