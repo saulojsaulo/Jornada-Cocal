@@ -93,6 +93,7 @@ export default function FichaPontoReport() {
   const startDate = searchParams.get("start") || "";
   const endDate = searchParams.get("end") || "";
   const vehicleCodesStr = searchParams.get("vehicle_codes") || "";
+  const driverSenha = searchParams.get("senha") || "";
 
   const [rows, setRows] = useState<DayRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,37 +105,45 @@ export default function FichaPontoReport() {
     setLoading(true);
     try {
       const vehicleCodes = vehicleCodesStr.split(",").filter(Boolean);
-      if (vehicleCodes.length === 0) { setRows([]); setLoading(false); return; }
 
       const startISO = new Date(startDate + "T00:00:00").toISOString();
       const endExtended = new Date(endDate + "T00:00:00");
       endExtended.setDate(endExtended.getDate() + 2);
       const endISO = endExtended.toISOString();
 
+      // Build OR filter: by password and/or vehicle codes (same logic as MovimentoCondutorTab)
+      const pwdFilter = driverSenha ? `driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%` : "";
+      const vehFilter = vehicleCodes.length > 0 ? `vehicle_code.in.(${vehicleCodes.join(",")})` : "";
+
+      let orQuery = "";
+      if (pwdFilter && vehFilter) orQuery = `${pwdFilter},${vehFilter}`;
+      else if (pwdFilter) orQuery = pwdFilter;
+      else if (vehFilter) orQuery = vehFilter;
+      else { setRows([]); setLoading(false); return; }
+
       let allEvents: any[] = [];
-      for (const vc of vehicleCodes) {
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          const { data: page } = await supabase
-            .from("autotrac_eventos")
-            .select("*")
-            .eq("vehicle_code", Number(vc))
-            .gte("message_time", startISO)
-            .lte("message_time", endISO)
-            .order("message_time", { ascending: true })
-            .range(from, from + pageSize - 1);
-          if (!page || page.length === 0) break;
-          allEvents = allEvents.concat(page);
-          if (page.length < pageSize) break;
-          from += pageSize;
-        }
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        let q = (supabase as any)
+          .from("autotrac_eventos")
+          .select("*")
+          .gte("message_time", startISO)
+          .lte("message_time", endISO)
+          .order("message_time", { ascending: true });
+        q = q.or(orQuery);
+        const { data: page, error } = await q.range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!page || page.length === 0) break;
+        allEvents = allEvents.concat(page);
+        if (page.length < pageSize) break;
+        from += pageSize;
       }
 
       const { data: overridesData } = await supabase
         .from("macro_overrides")
         .select("*")
-        .in("vehicle_code", vehicleCodes.map(Number));
+        .in("vehicle_code", vehicleCodes.length > 0 ? vehicleCodes.map(Number) : [0]);
 
       const VALID_MACROS = new Set([1, 2, 3, 4, 5, 6, 9, 10]);
       const toDateKey = (d: Date) =>

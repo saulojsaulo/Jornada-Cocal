@@ -12,6 +12,7 @@ interface Motorista {
   id: string;
   nome: string;
   cpf: string | null;
+  senha: string | null;
 }
 
 interface Cadastro {
@@ -42,7 +43,7 @@ export default function RelatoriosTab() {
 
   const loadData = async () => {
     const [{ data: mData }, { data: cData }, { data: avData }] = await Promise.all([
-      supabase.from("motoristas").select("id, nome, cpf").eq("ativo", true).order("nome"),
+      supabase.from("motoristas").select("id, nome, cpf, senha").eq("ativo", true).order("nome"),
       supabase.from("cadastros").select("veiculo_id, nome_veiculo, numero_frota, motorista_nome, motorista_id").eq("ativo", true),
       (supabase as any).from("autotrac_vehicles").select("vehicle_code, name"),
     ]);
@@ -114,12 +115,8 @@ export default function RelatoriosTab() {
       vehicleCodes = driverCadastros.map(c => resolveVehicleCode(c)).filter(Boolean) as string[];
     }
 
-    if (driverCadastros.length === 0) {
-      toast.error("Motorista sem vínculo de frota. Vincule-o a um veículo em Cadastros → Veículos.");
-      return;
-    }
-    if (vehicleCodes.length === 0) {
-      toast.error("Não foi possível localizar o veículo no Autotrac. Verifique o número de frota em Cadastros.");
+    if (vehicleCodes.length === 0 && !motorista?.senha) {
+      toast.error("Motorista não possui senha cadastrada nem vínculo com frota. Verifique em Cadastros.");
       return;
     }
 
@@ -127,6 +124,7 @@ export default function RelatoriosTab() {
       motorista_id: selectedMotorista,
       motorista_nome: motorista?.nome || "",
       motorista_cpf: motorista?.cpf || "",
+      senha: motorista?.senha || "",
       start,
       end,
       vehicle_codes: vehicleCodes.join(","),
