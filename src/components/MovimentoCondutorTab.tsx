@@ -18,6 +18,7 @@ interface Motorista {
   id: string;
   nome: string;
   cpf: string | null;
+  senha?: string;
 }
 
 interface Cadastro {
@@ -85,7 +86,7 @@ export default function MovimentoCondutorTab() {
 
   const loadBaseData = async () => {
     const [{ data: mData }, { data: cData }, { data: avData }] = await Promise.all([
-      supabase.from("motoristas").select("id, nome, cpf").eq("ativo", true).order("nome"),
+      supabase.from("motoristas").select("id, nome, cpf, senha").eq("ativo", true).order("nome"),
       supabase.from("cadastros").select("veiculo_id, nome_veiculo, numero_frota, motorista_nome, motorista_id").eq("ativo", true),
       (supabase as any).from("autotrac_vehicles").select("vehicle_code, name"),
     ]);
@@ -142,52 +143,54 @@ export default function MovimentoCondutorTab() {
 
     setLoading(true);
     try {
-      const driverCadastros = cadastros.filter(c => c.motorista_id === driver.id || c.motorista_nome === driver.nome);
-      
-      // Resolve numeric vehicle_codes from autotrac_vehicles by matching frota numbers
-      const vehicleCodes: number[] = [];
-      for (const cad of driverCadastros) {
-        const frotaNum = cad.numero_frota;
-        const av = autotracVehicles.find((v: any) => {
-          const vName = v.name?.trim() || "";
-          const numMatch = vName.match(/^(\d+)/);
-          const vFrota = numMatch ? numMatch[1] : "";
-          return vFrota === frotaNum || vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") || vFrota.padStart(3, "0") === frotaNum.padStart(3, "0");
-        });
-        if (av) vehicleCodes.push(av.vehicle_code);
+      if (!driver.senha) { 
+        toast.error("Motorista não possui senha (identificação) cadastrada no sistema. Vá em Cadastros > Motoristas e configure a senha do Autotrac."); 
+        setLoading(false); 
+        return; 
       }
-
-      if (vehicleCodes.length === 0) { toast.error("Motorista sem veículo vinculado"); setLoading(false); return; }
 
       const startDate = new Date(range.start + "T00:00:00");
       const endDate = new Date(range.end + "T23:59:59");
 
       let allEvents: any[] = [];
-      for (const vc of vehicleCodes) {
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          const { data: page, error } = await (supabase as any)
-            .from("autotrac_eventos")
-            .select("*")
-            .eq("vehicle_code", vc)
-            .gte("message_time", startDate.toISOString())
-            .lte("message_time", endDate.toISOString())
-            .order("message_time", { ascending: true })
-            .range(from, from + pageSize - 1);
-          if (error) throw error;
-          if (!page || page.length === 0) break;
-          allEvents = allEvents.concat(page);
-          if (page.length < pageSize) break;
-          from += pageSize;
-        }
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: page, error } = await (supabase as any)
+          .from("autotrac_eventos")
+          .select("*")
+          .eq("driver_password", driver.senha)
+          .gte("message_time", startDate.toISOString())
+          .lte("message_time", endDate.toISOString())
+          .order("message_time", { ascending: true })
+          .range(from, from + pageSize - 1);
+        
+        if (error) throw error;
+        if (!page || page.length === 0) break;
+        allEvents = allEvents.concat(page);
+        if (page.length < pageSize) break;
+        from += pageSize;
       }
 
-      const { data: overridesData } = await (supabase as any)
-        .from("macro_overrides")
-        .select("*")
-        .in("vehicle_code", vehicleCodes)
-        .order("created_at", { ascending: true });
+      if (allEvents.length === 0) {
+         toast.info("Nenhuma jornada registrada para a senha deste motorista neste período.");
+      }
+
+      const vcSet = new Set<number>();
+      for (const e of allEvents) {
+        if (e.vehicle_code) vcSet.add(Number(e.vehicle_code));
+      }
+      const vehicleCodes = Array.from(vcSet);
+
+      let overridesData: any[] = [];
+      if (vehicleCodes.length > 0) {
+        const { data } = await (supabase as any)
+          .from("macro_overrides")
+          .select("*")
+          .in("vehicle_code", vehicleCodes)
+          .order("created_at", { ascending: true });
+        if (data) overridesData = data;
+      }
 
       const mappedEvents: MacroEvent[] = allEvents
         .filter((e: any) => VALID_MACROS.has(e.macro_number))
@@ -352,21 +355,13 @@ export default function MovimentoCondutorTab() {
   };
 
   const driverVehicleCodes = useMemo(() => {
-    if (!selectedMotorista) return [];
-    const driverCads = cadastros.filter(c => c.motorista_id === selectedMotorista.id || c.motorista_nome === selectedMotorista.nome);
-    const codes: string[] = [];
-    for (const cad of driverCads) {
-      const frotaNum = cad.numero_frota;
-      const av = autotracVehicles.find((v: any) => {
-        const vName = v.name?.trim() || "";
-        const numMatch = vName.match(/^(\d+)/);
-        const vFrota = numMatch ? numMatch[1] : "";
-        return vFrota === frotaNum || vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") || vFrota.padStart(3, "0") === frotaNum.padStart(3, "0");
-      });
-      if (av) codes.push(String(av.vehicle_code));
+    if (!selectedMotorista || dayDataList.length === 0) return [];
+    const codes = new Set<string>();
+    for (const day of dayDataList) {
+      for (const e of day.allEvents) codes.add(e.vehicleId);
     }
-    return codes;
-  }, [selectedMotorista, cadastros, autotracVehicles]);
+    return Array.from(codes);
+  }, [selectedMotorista, dayDataList]);
 
   const JORNADA_NORMAL = 480;
 
