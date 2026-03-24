@@ -13,6 +13,7 @@ import DayMarkDialog from "./DayMarkDialog";
 import StatusBadge from "./StatusBadge";
 import TimelineBar from "./TimelineBar";
 import TelemetryBar from "./TelemetryBar";
+import { useJourneyStore } from "@/context/JourneyContext";
 
 interface Motorista {
   id: string;
