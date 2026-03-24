@@ -167,14 +167,40 @@ export default function ControleTab() {
       switch (sortField) {
         case "driver": cmp = a.driverName.localeCompare(b.driverName); break;
         case "vehicle": cmp = a.vehicleName.localeCompare(b.vehicleName); break;
+        case "gestor": cmp = (a.vehicle?.gestorName || "").localeCompare(b.vehicle?.gestorName || ""); break;
         case "status": cmp = (a.calc?.status || "").localeCompare(b.calc?.status || ""); break;
+        case "posicao": {
+          const posA = a.vehicle ? vehiclePositions.get(a.vehicle.id)?.endereco || "" : "";
+          const posB = b.vehicle ? vehiclePositions.get(b.vehicle.id)?.endereco || "" : "";
+          cmp = posA.localeCompare(posB);
+          break;
+        }
+        case "datahora": {
+          const timeA = a.vehicle ? vehiclePositions.get(a.vehicle.id)?.dataPosicao || "" : "";
+          const timeB = b.vehicle ? vehiclePositions.get(b.vehicle.id)?.dataPosicao || "" : "";
+          cmp = timeA.localeCompare(timeB);
+          break;
+        }
         case "jornada": cmp = (a.calc?.netMinutes || 0) - (b.calc?.netMinutes || 0); break;
+        case "disponivel": cmp = (a.calc?.remainingMinutes || 0) - (b.calc?.remainingMinutes || 0); break;
         case "extras": cmp = (a.calc?.overtimeMinutes || 0) - (b.calc?.overtimeMinutes || 0); break;
+        case "alertas": {
+          const alertsA = (a.calc?.mealAlert ? 1 : 0) + ((a.calc?.interjournadaAlert && a.calc.interjournadaAlert !== "none") ? 1 : 0) + (a.continuousDrivingMinutes >= 330 ? 1 : 0);
+          const alertsB = (b.calc?.mealAlert ? 1 : 0) + ((b.calc?.interjournadaAlert && b.calc.interjournadaAlert !== "none") ? 1 : 0) + (b.continuousDrivingMinutes >= 330 ? 1 : 0);
+          cmp = alertsA - alertsB;
+          break;
+        }
+        case "folga": {
+          const isFolgaA = folgaVehicles.has(a.driverId) || !!getDayMark(a.driverId, selectedDate);
+          const isFolgaB = folgaVehicles.has(b.driverId) || !!getDayMark(b.driverId, selectedDate);
+          cmp = (isFolgaA === isFolgaB) ? 0 : isFolgaA ? -1 : 1;
+          break;
+        }
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
     return r;
-  }, [rows, filterStatus, filterAlertType, sortField, sortDir, searchQuery, folgaVehicles, getDayMark, selectedDate]);
+  }, [rows, filterStatus, filterAlertType, sortField, sortDir, searchQuery, folgaVehicles, getDayMark, selectedDate, vehiclePositions]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -296,12 +322,17 @@ export default function ControleTab() {
           onChange={(e) => { setSortField(e.target.value); setSortDir("asc"); }}
           className="text-xs border rounded-md px-2 py-1.5 bg-card text-foreground"
         >
-          <option value="driver">Ordenar: Motorista</option>
-          <option value="vehicle">Ordenar: Frota</option>
           <option value="gestor">Ordenar: Gestor</option>
+          <option value="vehicle">Ordenar: Frota</option>
+          <option value="driver">Ordenar: Motorista</option>
           <option value="status">Ordenar: Status</option>
+          <option value="posicao">Ordenar: Última Posição</option>
+          <option value="datahora">Ordenar: Data/Hora</option>
           <option value="jornada">Ordenar: Jornada</option>
+          <option value="disponivel">Ordenar: Disponível</option>
           <option value="extras">Ordenar: H. Extras</option>
+          <option value="alertas">Ordenar: Alertas</option>
+          <option value="folga">Ordenar: Folga</option>
         </select>
         <button
           onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
@@ -333,17 +364,17 @@ export default function ControleTab() {
           <thead className="border-b bg-muted/50">
             <tr>
               <th className="w-6 px-1" />
-              <SortHeader field="driver">Motorista</SortHeader>
-              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Último Veículo</th>
               <SortHeader field="gestor">Gestor</SortHeader>
+              <SortHeader field="vehicle">Frota</SortHeader>
+              <SortHeader field="driver">Motorista</SortHeader>
               <SortHeader field="status">Status</SortHeader>
-              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Última Posição</th>
-              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Data/Hora</th>
+              <SortHeader field="posicao">Última Posição</SortHeader>
+              <SortHeader field="datahora">Data/Hora</SortHeader>
               <SortHeader field="jornada" className="text-right">Jornada</SortHeader>
-              <th className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Disponível</th>
+              <SortHeader field="disponivel" className="text-right">Disponível</SortHeader>
               <SortHeader field="extras" className="text-right">H. Extras</SortHeader>
-              <th className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Alertas</th>
-              <th className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Folga</th>
+              <SortHeader field="alertas" className="text-center">Alertas</SortHeader>
+              <SortHeader field="folga" className="text-center">Folga</SortHeader>
             </tr>
           </thead>
           <tbody>
@@ -430,9 +461,9 @@ function RowGroup({
             : <ChevronRight className="h-3 w-3 text-muted-foreground" />
           }
         </td>
-        <td className="px-2 py-0 font-semibold text-[11px] max-w-[220px] truncate" title={row.driverName}>{row.driverName}</td>
-        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
         <td className="px-2 py-0 text-[11px] max-w-[120px] truncate" title={row.vehicle?.gestorName || "—"}>{row.vehicle?.gestorName || "—"}</td>
+        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
+        <td className="px-2 py-0 font-semibold text-[11px] max-w-[220px] truncate" title={row.driverName}>{row.driverName}</td>
         <td className="px-2 py-0">
           {hasDayMark ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-800 border border-yellow-300" title={dayMark.reason}>
