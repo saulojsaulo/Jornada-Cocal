@@ -225,6 +225,12 @@ export default function FichaPontoReport() {
             macroNumber: e.macro_number as MacroNumber,
             createdAt: dt,
             dataJornada: dk,
+            driverId: "unknown",
+            driverName: null as string | null,
+            endereco: e.landmark || null as string | null,
+            latitude: e.latitude ? Number(e.latitude) : null as number | null,
+            longitude: e.longitude ? Number(e.longitude) : null as number | null,
+            journeyId: undefined as string | undefined,
           };
         });
 
