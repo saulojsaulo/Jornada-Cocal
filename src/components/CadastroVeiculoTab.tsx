@@ -29,6 +29,7 @@ export default function CadastroVeiculoTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editGestor, setEditGestor] = useState<string>("");
   const [editNomeVeiculo, setEditNomeVeiculo] = useState<string>("");
+  const [editFrota, setEditFrota] = useState<string>("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -106,11 +107,13 @@ export default function CadastroVeiculoTab() {
     setEditingId(c.id); 
     setEditGestor(c.gestor_id || ""); 
     setEditNomeVeiculo(c.nome_veiculo || "");
+    setEditFrota(c.numero_frota || "");
   };
 
   const handleSave = async (c: Cadastro) => {
     const selectedGestor = gestores.find((g) => g.id === editGestor);
     const { error } = await supabase.from("cadastros").update({
+      numero_frota: editFrota.trim() || c.numero_frota,
       nome_veiculo: editNomeVeiculo.trim() || c.nome_veiculo,
       gestor_id: editGestor || null,
       gestor_nome: selectedGestor?.nome || null,
@@ -161,7 +164,19 @@ export default function CadastroVeiculoTab() {
               const isEditing = editingId === c.id;
               return (
                 <tr key={c.id} className="border-b hover:bg-muted/20">
-                  <td className="px-3 py-1.5 font-bold font-mono">{c.numero_frota || "—"}</td>
+                  <td className="px-3 py-1.5 font-bold font-mono">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={editFrota} 
+                        onChange={(e) => setEditFrota(e.target.value)}
+                        className="border rounded px-2 py-1 bg-background max-w-[80px]"
+                        placeholder="Frota"
+                      />
+                    ) : (
+                      c.numero_frota || "—"
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 text-xs">
                     {isEditing ? (
                       <input 
