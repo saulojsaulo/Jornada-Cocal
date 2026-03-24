@@ -33,6 +33,7 @@ export default function ControleTab() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterGestores, setFilterGestores] = useState<Set<string>>(new Set());
+  const [isGestorDropdownOpen, setIsGestorDropdownOpen] = useState(false);
   const [filterAlertType, setFilterAlertType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [now, setNow] = useState(() => new Date());
@@ -65,8 +66,16 @@ export default function ControleTab() {
       const vehicle = vehicleById.get(vehicleId) || null;
       const vehicleName = vehicle?.name || vehicleId;
 
+      const selectedDayStart = new Date(`${selectedDate}T00:00:00`);
       const todayJourney = journeys
-        .filter(j => j.date === selectedDate)
+        .filter(j => {
+          if (j.date === selectedDate) return true;
+          // Se começou num dia anterior, verificamos se ela abrange o dia atual
+          if (j.startTime < selectedDayStart) {
+            return !j.endTime || j.endTime > selectedDayStart;
+          }
+          return false;
+        })
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
         .at(-1) ?? null;
 
@@ -225,20 +234,60 @@ export default function ControleTab() {
 
         {/* Gestor filter */}
         {gestorList.length > 0 && (
-          <select
-            value={filterGestores.size === 0 ? "all" : filterGestores.size === 1 ? Array.from(filterGestores)[0] : "_multi"}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val === "all") setFilterGestores(new Set());
-              else setFilterGestores(new Set([val]));
-            }}
-            className="text-xs border rounded-md px-2 py-1.5 bg-card text-foreground max-w-[180px]"
-          >
-            <option value="all">Todos Gestores</option>
-            {gestorList.map((g) => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <button
+              onClick={() => setIsGestorDropdownOpen(!isGestorDropdownOpen)}
+              className="text-xs border rounded-md px-2 py-1.5 bg-card text-foreground flex items-center justify-between gap-2 min-w-[140px]"
+            >
+              <span className="truncate max-w-[120px]">
+                {filterGestores.size === 0
+                  ? "Todos Gestores"
+                  : `${filterGestores.size} Gestor(es)`}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </button>
+            {isGestorDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsGestorDropdownOpen(false)} 
+                />
+                <div className="absolute top-full left-0 mt-1 w-48 bg-card border rounded-md shadow-lg p-2 z-50 max-h-64 overflow-y-auto">
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="rounded cursor-pointer"
+                        checked={filterGestores.size === 0} 
+                        onChange={() => {
+                          setFilterGestores(new Set());
+                          setIsGestorDropdownOpen(false);
+                        }}
+                      />
+                      <span>Todos Gestores</span>
+                    </label>
+                    <div className="h-px bg-border/50 my-1" />
+                    {gestorList.map(g => (
+                      <label key={g} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer truncate">
+                        <input 
+                          type="checkbox"
+                          className="rounded cursor-pointer"
+                          checked={filterGestores.has(g)}
+                          onChange={(e) => {
+                            const next = new Set(filterGestores);
+                            if (e.target.checked) next.add(g);
+                            else next.delete(g);
+                            setFilterGestores(next);
+                          }}
+                        />
+                        <span className="truncate" title={g}>{g}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* Sort */}
@@ -286,6 +335,7 @@ export default function ControleTab() {
               <th className="w-6 px-1" />
               <SortHeader field="driver">Motorista</SortHeader>
               <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Último Veículo</th>
+              <SortHeader field="gestor">Gestor</SortHeader>
               <SortHeader field="status">Status</SortHeader>
               <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Última Posição</th>
               <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Data/Hora</th>
@@ -382,6 +432,7 @@ function RowGroup({
         </td>
         <td className="px-2 py-0 font-semibold text-[11px] max-w-[220px] truncate" title={row.driverName}>{row.driverName}</td>
         <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
+        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate" title={row.vehicle?.gestorName || "—"}>{row.vehicle?.gestorName || "—"}</td>
         <td className="px-2 py-0">
           {hasDayMark ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-800 border border-yellow-300" title={dayMark.reason}>

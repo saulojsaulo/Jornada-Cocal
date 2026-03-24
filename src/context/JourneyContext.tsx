@@ -209,7 +209,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         start.setDate(start.getDate() - daysWindow);
 
         const fields = includeDriverPassword
-          ? "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password"
+          ? "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password, raw_data"
           : "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude";
 
         let all: any[] = [];
@@ -286,7 +286,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       const mappedEvents: MacroEvent[] = allEvents
         .filter((e: any) => VALID_MACROS.has(e.macro_number))
         .map((e: any) => {
-          const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
+          const passwordMatch = e.raw_data?.MessageText ? String(e.raw_data.MessageText).match(/^_(\w+)/) : null;
+          const extractedPassword = e.driver_password || (passwordMatch ? passwordMatch[1] : null);
+          const driver = extractedPassword ? driverBySenha.get(extractedPassword) : null;
           return {
             id: e.id,
             vehicleId: String(e.vehicle_code),
