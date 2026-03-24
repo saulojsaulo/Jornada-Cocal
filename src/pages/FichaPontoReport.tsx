@@ -149,27 +149,39 @@ export default function FichaPontoReport() {
       const endISO = endExtended.toISOString();
 
       // Build OR filter
-      const pwdFilter = driverSenha ? `driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%` : "";
-      const vehFilter = vehicleCodes.length > 0 ? `vehicle_code.in.(${vehicleCodes.join(",")})` : "";
-      let orQuery = "";
-      if (pwdFilter && vehFilter) orQuery = `${pwdFilter},${vehFilter}`;
-      else if (pwdFilter) orQuery = pwdFilter;
-      else if (vehFilter) orQuery = vehFilter;
-      else { setRows([]); setLoading(false); return; }
+      // Step 1: if we have no vehicle_codes from URL but have a senha, discover
+      // vehicle_codes from autotrac_eventos where raw_data MessageText contains _senha
+      let resolvedCodes = [...vehicleCodes];
+      if (resolvedCodes.length === 0 && driverSenha) {
+        const { data: discoverData } = await (supabase as any)
+          .from("autotrac_eventos")
+          .select("vehicle_code")
+          .gte("message_time", new Date(monthStart + "T00:00:00").toISOString())
+          .lte("message_time", endISO)
+          .ilike("raw_data->>MessageText", `%_${driverSenha}%`);
+        if (discoverData?.length) {
+          const codeSet = new Set<string>();
+          for (const row of discoverData) codeSet.add(String(row.vehicle_code));
+          resolvedCodes = Array.from(codeSet);
+        }
+      }
 
-      // Fetch events
+      if (resolvedCodes.length === 0) { setRows([]); setLoading(false); return; }
+
+      // Step 2: fetch all events for those vehicle_codes
+      // The query will now use the resolvedCodes for filtering
       let allEvents: any[] = [];
       let from = 0;
       const pageSize = 1000;
       while (true) {
-        let q = (supabase as any)
+        const { data: page, error } = await (supabase as any)
           .from("autotrac_eventos")
           .select("*")
+          .in("vehicle_code", resolvedCodes.map(Number))
           .gte("message_time", startISO)
           .lte("message_time", endISO)
-          .order("message_time", { ascending: true });
-        q = q.or(orQuery);
-        const { data: page, error } = await q.range(from, from + pageSize - 1);
+          .order("message_time", { ascending: true })
+          .range(from, from + pageSize - 1);
         if (error) throw error;
         if (!page || page.length === 0) break;
         allEvents = allEvents.concat(page);
@@ -177,11 +189,23 @@ export default function FichaPontoReport() {
         from += pageSize;
       }
 
+      // If driver has a senha, filter events to only those belonging to this driver
+      // (in case the vehicle was used by multiple drivers)
+      if (driverSenha) {
+        allEvents = allEvents.filter((e: any) => {
+          const msgText = e.raw_data?.MessageText ? String(e.raw_data.MessageText) : "";
+          const match = msgText.match(/^_(\w+)/);
+          const extracted = match ? match[1] : null;
+          if (extracted && extracted !== driverSenha) return false;
+          return true;
+        });
+      }
+
       // Overrides
       const { data: overridesData } = await (supabase as any)
         .from("macro_overrides")
         .select("*")
-        .in("vehicle_code", vehicleCodes.length > 0 ? vehicleCodes.map(Number) : [0]);
+        .in("vehicle_code", resolvedCodes.length > 0 ? resolvedCodes.map(Number) : [0]);
 
       // Determine which vehicle codes were used per day (for telemetry)
       const vehicleCodesUsedByDay = new Map<string, Set<number>>();
