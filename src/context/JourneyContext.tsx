@@ -35,8 +35,12 @@ interface JourneyStore {
   syncFromAutotrac: () => void;
   /** Day marks from macro_overrides keyed by "vehicleCode_YYYY-MM-DD" */
   dayMarks: Map<string, DayMarkInfo>;
+  /** Day marks from macro_overrides keyed by "driverId_YYYY-MM-DD" */
+  driverDayMarks: Map<string, DayMarkInfo>;
   /** Get day mark for a vehicle id on a given date */
   getDayMark: (vehicleId: string, date: string) => DayMarkInfo | null;
+  /** Get day mark for a driver id (folgas specific to drivers unconditionally) on a given date */
+  getDriverDayMark: (driverId: string, date: string) => DayMarkInfo | null;
 }
 
 const JourneyContext = createContext<JourneyStore | null>(null);
@@ -102,7 +106,9 @@ const HMR_FALLBACK_STORE: JourneyStore = {
   lastSyncAt: null,
   syncFromAutotrac: () => {},
   dayMarks: new Map(),
+  driverDayMarks: new Map(),
   getDayMark: () => null,
+  getDriverDayMark: () => null,
 };
 
 export function JourneyProvider({ children }: { children: React.ReactNode }) {
@@ -114,6 +120,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [folgaVehicles, setFolgaVehicles] = useState<Set<string>>(new Set());
   const [dayMarks, setDayMarks] = useState<Map<string, DayMarkInfo>>(new Map());
+  const [driverDayMarks, setDriverDayMarks] = useState<Map<string, DayMarkInfo>>(new Map());
   const [vehiclePositions, setVehiclePositions] = useState<Map<string, { endereco: string; latitude: number | null; longitude: number | null; dataPosicao: string | null }>>(new Map());
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const isFirstLoad = useRef(true);
@@ -348,20 +355,8 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
               dataJornada: toDateKey(new Date(ov.event_time)),
               isManual: true,
             } as any);
-          } else if (DAY_MARK_ACTIONS.has(ov.action)) {
-            const markDate = ov.event_time ? toDateKey(new Date(ov.event_time)) : null;
-            if (markDate) {
-              newDayMarks.set(`${ov.vehicle_code}_${markDate}`, {
-                type: ov.action as DayMarkType,
-                reason: ov.reason || "",
-                id: ov.id,
-                vehicleCode: ov.vehicle_code,
-              });
-            }
           }
         }
-
-        setDayMarks(newDayMarks);
 
         // Remove deleted events
         finalEvents = finalEvents.filter(e => !deletedIds.has(e.id));

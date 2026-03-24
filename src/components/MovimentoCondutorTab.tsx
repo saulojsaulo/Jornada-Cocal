@@ -55,6 +55,7 @@ interface DayData {
 }
 
 export default function MovimentoCondutorTab() {
+  const { refreshData } = useJourneyStore();
   const [motoristas, setMotoristas] = useState<Motorista[]>([]);
   const [cadastros, setCadastros] = useState<Cadastro[]>([]);
   const [searchText, setSearchText] = useState("");
@@ -99,7 +100,7 @@ export default function MovimentoCondutorTab() {
     const now = new Date();
     const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     if (periodo === "mes_atual") {
-      return { start: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), end: fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+      return { start: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), end: fmt(now) };
     }
     if (periodo === "mes_anterior") {
       return { start: fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1)), end: fmt(new Date(now.getFullYear(), now.getMonth(), 0)) };
@@ -143,10 +144,31 @@ export default function MovimentoCondutorTab() {
 
     setLoading(true);
     try {
-      if (!driver.senha) { 
-        toast.error("Motorista não possui senha (identificação) cadastrada no sistema. Vá em Cadastros > Motoristas e configure a senha do Autotrac."); 
-        setLoading(false); 
-        return; 
+      const driverCads = cadastros.filter(c => c.motorista_id === driver.id || c.motorista_nome === driver.nome);
+      const legacyVehicleCodes = new Set<number>();
+      for (const cad of driverCads) {
+        const frotaNum = cad.numero_frota;
+        const av = autotracVehicles.find((v: any) => {
+          const vName = v.name?.trim() || "";
+          const numMatch = vName.match(/^(\d+)/);
+          const vFrota = numMatch ? numMatch[1] : "";
+          return vFrota === frotaNum || vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") || vFrota.padStart(3, "0") === frotaNum.padStart(3, "0");
+        });
+        if (av) legacyVehicleCodes.add(Number(av.vehicle_code));
+      }
+      const legacyArr = Array.from(legacyVehicleCodes);
+
+      const pwdFilter = driver.senha ? `driver_password.eq.${driver.senha},raw_data->>MessageText.ilike.%_${driver.senha}%` : "";
+      const vehFilter = legacyArr.length > 0 ? `vehicle_code.in.(${legacyArr.join(",")})` : "";
+      
+      let orQuery = "";
+      if (pwdFilter && vehFilter) orQuery = `${pwdFilter},${vehFilter}`;
+      else if (pwdFilter) orQuery = pwdFilter;
+      else if (vehFilter) orQuery = vehFilter;
+      else {
+        toast.error("Motorista não possui senha cadastrada nem vínculos históricos na frota.");
+        setLoading(false);
+        return;
       }
 
       const startDate = new Date(range.start + "T00:00:00");
@@ -156,14 +178,16 @@ export default function MovimentoCondutorTab() {
       let from = 0;
       const pageSize = 1000;
       while (true) {
-        const { data: page, error } = await (supabase as any)
+        let query = (supabase as any)
           .from("autotrac_eventos")
           .select("*")
-          .eq("driver_password", driver.senha)
           .gte("message_time", startDate.toISOString())
           .lte("message_time", endDate.toISOString())
-          .order("message_time", { ascending: true })
-          .range(from, from + pageSize - 1);
+          .order("message_time", { ascending: true });
+        
+        if (orQuery) query = query.or(orQuery);
+        
+        const { data: page, error } = await query.range(from, from + pageSize - 1);
         
         if (error) throw error;
         if (!page || page.length === 0) break;
@@ -172,8 +196,16 @@ export default function MovimentoCondutorTab() {
         from += pageSize;
       }
 
+      // Filter events to ENSURE they belong to the driver (discard events from legacy vehicles that belong to someone else)
+      allEvents = allEvents.filter((e: any) => {
+        const passwordMatch = e.raw_data?.MessageText ? String(e.raw_data.MessageText).match(/^_(\w+)/) : null;
+        const extractedPwd = e.driver_password || (passwordMatch ? passwordMatch[1] : null);
+        if (extractedPwd && driver.senha && extractedPwd !== driver.senha) return false;
+        return true;
+      });
+
       if (allEvents.length === 0) {
-         toast.info("Nenhuma jornada registrada para a senha deste motorista neste período.");
+         toast.info("Nenhuma jornada registrada para o motorista neste período.");
       }
 
       const vcSet = new Set<number>();
@@ -182,15 +214,15 @@ export default function MovimentoCondutorTab() {
       }
       const vehicleCodes = Array.from(vcSet);
 
-      let overridesData: any[] = [];
-      if (vehicleCodes.length > 0) {
-        const { data } = await (supabase as any)
-          .from("macro_overrides")
-          .select("*")
-          .in("vehicle_code", vehicleCodes)
-          .order("created_at", { ascending: true });
-        if (data) overridesData = data;
-      }
+      const [res1, res2] = await Promise.all([
+        (supabase as any).from("macro_overrides").select("*").in("vehicle_code", vehicleCodes.length > 0 ? vehicleCodes : [0]),
+        (supabase as any).from("macro_overrides").select("*").eq("vehicle_code", 0).eq("original_event_id", driver.id)
+      ]);
+      
+      const overridesMap = new Map();
+      if (res1.data) res1.data.forEach((d: any) => overridesMap.set(d.id, d));
+      if (res2.data) res2.data.forEach((d: any) => overridesMap.set(d.id, d));
+      const overridesData = Array.from(overridesMap.values()).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
       const mappedEvents: MacroEvent[] = allEvents
         .filter((e: any) => VALID_MACROS.has(e.macro_number))
@@ -237,7 +269,8 @@ export default function MovimentoCondutorTab() {
           } else if (["folga", "falta", "atestado", "afastamento"].includes(ov.action)) {
             const markDate = ov.event_time ? toDateKey(new Date(ov.event_time)) : null;
             if (markDate) {
-              dayMarksMap.set(`${ov.vehicle_code}_${markDate}`, { type: ov.action as DayMarkType, reason: ov.reason || "", id: ov.id });
+              const dk = (ov.vehicle_code === 0 && ov.original_event_id) ? ov.original_event_id : ov.vehicle_code;
+              dayMarksMap.set(`${dk}_${markDate}`, { type: ov.action as DayMarkType, reason: ov.reason || "", id: ov.id });
             }
           }
         }
@@ -272,16 +305,22 @@ export default function MovimentoCondutorTab() {
       }
 
       const days: DayData[] = [];
-      const current = new Date(range.start);
-      const end = new Date(range.end);
+      const current = new Date(range.start + "T00:00:00");
+      const end = new Date(range.end + "T23:59:59");
       while (current <= end) {
         const dateKey = toDateKey(current);
         const dayJourneys = journeysByDate.get(dateKey) || [];
         const dayEvents = eventsByDate.get(dateKey) || [];
         let dayMark: DayData["dayMark"] = null;
-        for (const vc of vehicleCodes) {
-          const mark = dayMarksMap.get(`${vc}_${dateKey}`);
-          if (mark) { dayMark = mark; break; }
+        if (driver) {
+           const dMark = dayMarksMap.get(`${driver.id}_${dateKey}`);
+           if (dMark) dayMark = dMark;
+        }
+        if (!dayMark) {
+          for (const vc of vehicleCodes) {
+            const mark = dayMarksMap.get(`${vc}_${dateKey}`);
+            if (mark) { dayMark = mark; break; }
+          }
         }
         days.push({ date: dateKey, journeys: dayJourneys, allEvents: dayEvents, dayMark });
         current.setDate(current.getDate() + 1);
@@ -335,7 +374,8 @@ export default function MovimentoCondutorTab() {
     const { error } = await (supabase as any)
       .from("macro_overrides")
       .insert({
-        vehicle_code: Number(markData.vehicleCode),
+        vehicle_code: 0,
+        original_event_id: selectedMotorista?.id,
         action: markData.type,
         event_time: new Date(markData.date + "T12:00:00").toISOString(),
         reason: markData.reason,
@@ -345,6 +385,7 @@ export default function MovimentoCondutorTab() {
     if (error) { toast.error("Erro ao salvar marcação: " + error.message); throw error; }
     toast.success(`Dia marcado como ${DAY_MARK_LABELS[markData.type]}`);
     if (selectedMotorista) loadDriverData(selectedMotorista);
+    refreshData();
   };
 
   const handleDeleteDayMark = async (markId: string) => {
@@ -352,6 +393,7 @@ export default function MovimentoCondutorTab() {
     if (error) { toast.error("Erro ao remover marcação: " + error.message); return; }
     toast.success("Marcação removida");
     if (selectedMotorista) loadDriverData(selectedMotorista);
+    refreshData();
   };
 
   const driverVehicleCodes = useMemo(() => {
