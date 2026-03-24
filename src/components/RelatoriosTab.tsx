@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FileText, Search, UserSearch, BarChart3, ClipboardList } from "lucide-react";
+import { FileText, Search, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import RankingTab from "@/components/RankingTab";
 import { toast } from "sonner";
-import FiltroMotoristaTab from "@/components/FiltroMotoristaTab";
-import MovimentoCondutorTab from "@/components/MovimentoCondutorTab";
+
 interface Motorista {
   id: string;
   nome: string;
@@ -24,7 +23,7 @@ interface Cadastro {
 }
 
 type PeriodoType = "mes_atual" | "mes_anterior" | "personalizado";
-type ReportType = "ficha_ponto" | "filtro_motorista" | "ranking" | "movimento_condutor";
+type ReportType = "ficha_ponto" | "ranking";
 
 export default function RelatoriosTab() {
   const [selectedReport, setSelectedReport] = useState<ReportType>("ficha_ponto");
@@ -83,8 +82,7 @@ export default function RelatoriosTab() {
 
     const motorista = motoristas.find((m) => m.id === selectedMotorista);
     const driverCadastros = cadastros.filter(c => c.motorista_id === selectedMotorista || c.motorista_nome === motorista?.nome);
-    
-    // Resolve numeric vehicle_codes from autotrac_vehicles by matching numero_frota
+
     const resolveVehicleCode = (cadastro: Cadastro): string | null => {
       const frotaNum = cadastro.numero_frota;
       const av = autotracVehicles.find((v: any) => {
@@ -98,7 +96,6 @@ export default function RelatoriosTab() {
 
     let vehicleCodes: string[];
     if (selectedFrota !== "all") {
-      // selectedFrota is a veiculo_id UUID — find its cadastro and resolve
       const cad = driverCadastros.find(c => c.veiculo_id === selectedFrota);
       if (cad) {
         const vc = resolveVehicleCode(cad);
@@ -133,8 +130,6 @@ export default function RelatoriosTab() {
 
   const reports: { id: ReportType; label: string; icon: typeof FileText }[] = [
     { id: "ficha_ponto", label: "Ficha de Ponto", icon: FileText },
-    { id: "movimento_condutor", label: "Movimento do Condutor", icon: ClipboardList },
-    { id: "filtro_motorista", label: "Filtro de Motorista", icon: UserSearch },
     { id: "ranking", label: "Ranking de Horas Extras", icon: BarChart3 },
   ];
 
@@ -163,8 +158,6 @@ export default function RelatoriosTab() {
         ))}
       </div>
 
-      {selectedReport === "movimento_condutor" && <MovimentoCondutorTab />}
-      {selectedReport === "filtro_motorista" && <FiltroMotoristaTab />}
       {selectedReport === "ranking" && <RankingTab />}
 
       {selectedReport === "ficha_ponto" && (
