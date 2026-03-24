@@ -149,6 +149,10 @@ export default function ControleTab() {
       });
     }
 
+    if (filterGestores.size > 0) {
+      r = r.filter(row => row.vehicle?.gestorName && filterGestores.has(row.vehicle.gestorName));
+    }
+
     if (filterAlertType === "refeicao") {
       r = r.filter((row) => row.calc?.mealAlert);
     } else if (filterAlertType === "interjornada_8h") {
