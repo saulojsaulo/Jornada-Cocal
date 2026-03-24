@@ -14,8 +14,8 @@ Deno.serve(async (req) => {
     // Verify the caller is authenticated
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Não autorizado' }), {
-        status: 401,
+      return new Response(JSON.stringify({ error: 'Nenhum cabeçalho de autorização encontrado' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -34,16 +34,16 @@ Deno.serve(async (req) => {
     const { data: { user: caller }, error: userError } = await supabaseUser.auth.getUser(token);
     
     if (userError || !caller) {
-      return new Response(JSON.stringify({ error: 'Não autorizado' }), {
-        status: 401,
+      return new Response(JSON.stringify({ error: 'Erro de Autenticação/Token Inválido', details: userError }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     // Only admin can manage users
     if (caller.email !== "saulosantosj@gmail.com") {
-      return new Response(JSON.stringify({ error: 'Acesso restrito ao administrador' }), {
-        status: 403,
+      return new Response(JSON.stringify({ error: `Acesso restrito. Seu email: ${caller.email}` }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       const { email, password, name } = await req.json();
       if (!email || !password || !name) {
         return new Response(JSON.stringify({ error: 'E-mail, senha e nome são obrigatórios' }), {
-          status: 400,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -90,14 +90,14 @@ Deno.serve(async (req) => {
       const { user_id } = await req.json();
       if (!user_id) {
         return new Response(JSON.stringify({ error: 'user_id é obrigatório' }), {
-          status: 400,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       // Prevent self-deletion
       if (user_id === caller.id) {
         return new Response(JSON.stringify({ error: 'Você não pode excluir a si mesmo' }), {
-          status: 400,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -109,12 +109,12 @@ Deno.serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ error: 'Ação inválida' }), {
-      status: 400,
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: typeof err === "string" ? err : err.message || "Erro desconhecido", stack: err?.stack }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
