@@ -84,12 +84,19 @@ export default function RelatoriosTab() {
     const driverCadastros = cadastros.filter(c => c.motorista_id === selectedMotorista || c.motorista_nome === motorista?.nome);
 
     const resolveVehicleCode = (cadastro: Cadastro): string | null => {
-      const frotaNum = cadastro.numero_frota;
+      const frotaNum = (cadastro.numero_frota || "").trim();
       const av = autotracVehicles.find((v: any) => {
-        const vName = v.name?.trim() || "";
+        const vName = (v.name || "").trim();
         const numMatch = vName.match(/^(\d+)/);
         const vFrota = numMatch ? numMatch[1] : "";
-        return vFrota.padStart(3, "0") === frotaNum.padStart(3, "0");
+        // Try exact, stripped zeros, and padded zeros matching
+        return (
+          vFrota === frotaNum ||
+          vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") ||
+          vFrota.padStart(4, "0") === frotaNum.padStart(4, "0") ||
+          vFrota.padStart(3, "0") === frotaNum.padStart(3, "0") ||
+          vName === frotaNum
+        );
       });
       return av ? String(av.vehicle_code) : null;
     };
@@ -107,8 +114,12 @@ export default function RelatoriosTab() {
       vehicleCodes = driverCadastros.map(c => resolveVehicleCode(c)).filter(Boolean) as string[];
     }
 
+    if (driverCadastros.length === 0) {
+      toast.error("Motorista sem vínculo de frota. Vincule-o a um veículo em Cadastros → Veículos.");
+      return;
+    }
     if (vehicleCodes.length === 0) {
-      toast.error("Nenhum veículo encontrado para este motorista");
+      toast.error("Não foi possível localizar o veículo no Autotrac. Verifique o número de frota em Cadastros.");
       return;
     }
 
