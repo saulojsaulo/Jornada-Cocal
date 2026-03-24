@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { UserPlus, Trash2, Users } from "lucide-react";
+import { UserPlus, Trash2, Users, ShieldAlert } from "lucide-react";
 
 interface AppUser {
   id: string;
@@ -16,11 +16,14 @@ interface AppUser {
 
 export default function UsuariosTab() {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const isAdmin = currentUser?.email === "saulosantosj@gmail.com";
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -36,6 +39,9 @@ export default function UsuariosTab() {
   };
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUser(data.user);
+    });
     fetchUsers();
   }, []);
 
@@ -55,7 +61,8 @@ export default function UsuariosTab() {
     });
     setCreating(false);
     if (error || data?.error) {
-      toast.error(data?.error || "Erro ao criar usuário");
+      console.error("Erro na Edge Function manage-users:", error || data?.error);
+      toast.error(data?.error || error?.message || "Erro ao criar usuário");
     } else {
       toast.success("Usuário criado com sucesso!");
       setName("");
@@ -81,30 +88,40 @@ export default function UsuariosTab() {
   return (
     <div className="space-y-6">
       {/* Create user form */}
-      <div className="bg-card border rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <UserPlus className="h-5 w-5 text-primary" />
-          Criar Novo Usuário
-        </h2>
-        <form onSubmit={handleCreate} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-          <div className="space-y-1">
-            <Label htmlFor="user-name">Nome</Label>
-            <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome completo" required />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="user-email">E-mail</Label>
-            <Input id="user-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" required />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="user-password">Senha</Label>
-            <Input id="user-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" required />
-          </div>
-          <Button type="submit" disabled={creating}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            {creating ? "Criando..." : "Criar"}
-          </Button>
-        </form>
-      </div>
+      {isAdmin ? (
+        <div className="bg-card border rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" />
+            Criar Novo Usuário
+          </h2>
+          <form onSubmit={handleCreate} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+            <div className="space-y-1">
+              <Label htmlFor="user-name">Nome</Label>
+              <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome completo" required />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="user-email">E-mail</Label>
+              <Input id="user-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" required />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="user-password">Senha</Label>
+              <Input id="user-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" required />
+            </div>
+            <Button type="submit" disabled={creating}>
+              <UserPlus className="h-4 w-4 mr-2" />
+              {creating ? "Criando..." : "Criar"}
+            </Button>
+          </form>
+        </div>
+      ) : (
+        <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-xl p-6 flex flex-col items-center justify-center text-center">
+          <ShieldAlert className="h-8 w-8 mb-2" />
+          <h2 className="text-lg font-bold">Acesso Restrito</h2>
+          <p className="text-sm opacity-90 max-w-md">
+            Somente o administrador do sistema (saulosantosj@gmail.com) tem permissão para criar novos usuários e visualizar esta aba.
+          </p>
+        </div>
+      )}
 
       {/* User list */}
       <div className="bg-card border rounded-xl p-6">

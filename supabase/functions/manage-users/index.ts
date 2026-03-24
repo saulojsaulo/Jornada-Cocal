@@ -28,11 +28,12 @@ Deno.serve(async (req) => {
     // Verify caller is authenticated
     const supabaseUser = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      Deno.env.get("SUPABASE_ANON_KEY")!
     );
-    const { data: { user: caller } } = await supabaseUser.auth.getUser();
-    if (!caller) {
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const { data: { user: caller }, error: userError } = await supabaseUser.auth.getUser(token);
+    
+    if (userError || !caller) {
       return new Response(JSON.stringify({ error: 'Não autorizado' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
