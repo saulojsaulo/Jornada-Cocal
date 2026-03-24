@@ -166,34 +166,34 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       // Fetch cadastros (local bindings)
       const { data: cadastrosData, error: cErr } = await runWithTimeout<any>(supabase
         .from("cadastros")
-        .select("veiculo_id, motorista_nome, gestor_nome, numero_frota")
+        .select("veiculo_id, motorista_nome, gestor_nome, numero_frota, nome_veiculo")
         .eq("ativo", true));
 
       if (cErr) throw cErr;
 
-      // Build cadastro lookup by numero_frota (since vehicle IDs changed from external UUIDs to vehicle_code)
-      const cadastroByFrota = new Map<string, { veiculo_id: string; motorista_nome: string | null; gestor_nome: string | null; numero_frota: string }>();
+      // Build cadastro lookup by both veiculo_id and numero_frota
+      const cadastroById = new Map<string, any>();
       if (cadastrosData) {
         for (const c of cadastrosData) {
-          cadastroByFrota.set(c.numero_frota, {
+          cadastroById.set(c.veiculo_id, {
             veiculo_id: c.veiculo_id,
             motorista_nome: c.motorista_nome,
             gestor_nome: c.gestor_nome,
             numero_frota: c.numero_frota,
+            nome_veiculo: c.nome_veiculo,
           });
         }
       }
 
       const mappedVehicles: Vehicle[] = (vehiclesData || []).map((v: any) => {
         const vehicleName = (v.name?.trim() || `Veículo ${v.vehicle_code}`);
-        // Extract the numeric prefix from vehicle name (e.g., "026 - CAÇAMBA" -> "026")
         const numMatch = vehicleName.match(/^(\d+)/);
         const frotaNum = numMatch ? numMatch[1] : "";
-        // Try matching with and without leading zeros
-        const cadastro = cadastroByFrota.get(frotaNum) || cadastroByFrota.get(frotaNum.replace(/^0+/, "")) || cadastroByFrota.get(frotaNum.padStart(3, "0"));
+        const cadastro = cadastroById.get(String(v.vehicle_code));
+        const finalName = cadastro?.nome_veiculo?.trim() ? cadastro.nome_veiculo : vehicleName;
         return {
           id: String(v.vehicle_code),
-          name: vehicleName,
+          name: finalName,
           numeroFrota: cadastro?.numero_frota || frotaNum,
           driverName: cadastro?.motorista_nome || null,
           gestorName: cadastro?.gestor_nome || null,

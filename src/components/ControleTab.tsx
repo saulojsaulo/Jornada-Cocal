@@ -132,6 +132,7 @@ export default function ControleTab() {
       const q = searchQuery.toLowerCase();
       r = r.filter((row) =>
         row.driverName.toLowerCase().includes(q) ||
+        row.vehicle?.numeroFrota?.toLowerCase().includes(q) ||
         row.vehicleName.toLowerCase().includes(q) ||
         row.vehicleName.replace(/\D/g, "").includes(q)
       );
@@ -170,7 +171,12 @@ export default function ControleTab() {
       let cmp = 0;
       switch (sortField) {
         case "driver": cmp = a.driverName.localeCompare(b.driverName); break;
-        case "vehicle": cmp = a.vehicleName.localeCompare(b.vehicleName); break;
+        case "vehicle": {
+          const vA = a.vehicle?.numeroFrota || a.vehicleName.replace(/\D/g, "");
+          const vB = b.vehicle?.numeroFrota || b.vehicleName.replace(/\D/g, "");
+          cmp = vA.localeCompare(vB);
+          break;
+        }
         case "gestor": cmp = (a.vehicle?.gestorName || "").localeCompare(b.vehicle?.gestorName || ""); break;
         case "status": cmp = (a.calc?.status || "").localeCompare(b.calc?.status || ""); break;
         case "posicao": {
@@ -466,7 +472,7 @@ function RowGroup({
           }
         </td>
         <td className="px-2 py-0 text-[11px] max-w-[120px] truncate" title={row.vehicle?.gestorName || "—"}>{row.vehicle?.gestorName || "—"}</td>
-        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
+        <td className="px-2 py-0 text-[11px] max-w-[120px] truncate font-mono" title={row.vehicleName}>{row.vehicle?.numeroFrota || row.vehicleName.replace(/\D/g, "") || row.vehicleName}</td>
         <td className="px-2 py-0 font-semibold text-[11px] max-w-[220px] truncate" title={row.driverName}>{row.driverName}</td>
         <td className="px-2 py-0">
           {hasDayMark ? (

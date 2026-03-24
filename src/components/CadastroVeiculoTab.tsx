@@ -21,7 +21,7 @@ interface LocalGestor {
 }
 
 export default function CadastroVeiculoTab() {
-  const { vehicles } = useJourneyStore();
+  const { vehicles, refreshData } = useJourneyStore();
   const [cadastros, setCadastros] = useState<Cadastro[]>([]);
   const [gestores, setGestores] = useState<LocalGestor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,6 +123,7 @@ export default function CadastroVeiculoTab() {
     toast.success("Veículo atualizado");
     setEditingId(null);
     fetchAll();
+    refreshData();
   };
 
   const handleDelete = async (id: string) => {
