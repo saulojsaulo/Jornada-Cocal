@@ -5,27 +5,27 @@
 CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- 2. Schedule 'autotrac-sync' every 5 minutes
+-- 2. Schedule 'autotrac-sync' every 10 minutes
 SELECT cron.schedule(
     'invoke-autotrac-sync',
-    '*/5 * * * *', -- cron format: every 5 minutes
+    '*/10 * * * *', -- cron format: every 10 minutes
     $$
     SELECT net.http_post(
-        url:='https://logxhbphjtgobvppmyve.supabase.co/functions/v1/autotrac-sync',
-        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY"}'::jsonb,
+        url:='https://uewhtmagmftsyzzbeuux.supabase.co/functions/v1/autotrac-sync',
+        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
         body:='{}'::jsonb
     ) as request_id;
     $$
 );
 
--- 3. Schedule 'telemetry-sync' every 5 minutes
+-- 3. Schedule 'telemetry-sync' every 10 minutes
 SELECT cron.schedule(
     'invoke-telemetry-sync',
-    '*/5 * * * *', -- cron format: every 5 minutes
+    '*/10 * * * *', -- cron format: every 10 minutes
     $$
     SELECT net.http_post(
-        url:='https://logxhbphjtgobvppmyve.supabase.co/functions/v1/telemetry-sync',
-        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY"}'::jsonb,
+        url:='https://uewhtmagmftsyzzbeuux.supabase.co/functions/v1/telemetry-sync',
+        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
         body:='{}'::jsonb
     ) as request_id;
     $$
