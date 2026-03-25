@@ -52,9 +52,10 @@ const VALID_MACROS = new Set([1, 2, 3, 4, 5, 6, 9, 10]);
 let hmrReloadScheduled = false;
 
 const DAY_MARK_ACTIONS = new Set(["folga", "falta", "atestado", "afastamento"]);
-const LOAD_TIMEOUT_MS = 12_000;
+const LOAD_TIMEOUT_MS = 30_000;
 const BASE_REFRESH_INTERVAL_MS = 30_000;
 const MAX_REFRESH_INTERVAL_MS = 5 * 60_000;
+const REALTIME_DEBOUNCE_MS = 500;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number = LOAD_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -84,7 +85,11 @@ function isBackendUnavailableError(err: unknown): boolean {
     msg.includes("request canceled") ||
     msg.includes("failed to fetch") ||
     msg.includes("network") ||
-    msg.includes("status 544")
+    msg.includes("status 544") ||
+    msg.includes("socket hang up") ||
+    msg.includes("eof") ||
+    msg.includes("connection refused") ||
+    msg.includes("failed to connect")
   );
 }
 
@@ -135,6 +140,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const isFirstLoad = useRef(true);
   const isFetchingRef = useRef(false);
   const fetchRef = useRef<(() => Promise<void>) | null>(null);
+  const realtimeDebounceTimerRef = useRef<number | null>(null);
   const autoRefreshTimerRef = useRef<number | null>(null);
   const autoRefreshDelayRef = useRef(BASE_REFRESH_INTERVAL_MS);
   const outageToastShownRef = useRef(false);
@@ -457,6 +463,14 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       isFirstLoad.current = false;
     }
   }, [scheduleAutoRefresh]);
+  
+  // Debounced version of loadLocalData specifically for Realtime events
+  const debouncedLoadLocalData = useCallback(() => {
+    if (realtimeDebounceTimerRef.current) window.clearTimeout(realtimeDebounceTimerRef.current);
+    realtimeDebounceTimerRef.current = window.setTimeout(() => {
+      void loadLocalData("auto");
+    }, REALTIME_DEBOUNCE_MS);
+  }, [loadLocalData]);
 
   // Sync from Autotrac API via edge function
   const syncFromAutotrac = useCallback(async () => {
@@ -501,16 +515,16 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "autotrac_eventos" },
         () => {
-          console.log("[REALTIME] Novo evento detectado, atualizando...");
-          void loadLocalData("auto");
+          console.log("[REALTIME] Novo evento detectado, agendando atualização...");
+          debouncedLoadLocalData();
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "autotrac_positions" },
         () => {
-          console.log("[REALTIME] Posição atualizada, atualizando...");
-          void loadLocalData("auto");
+          // Positions can change frequently, debounce is essential here
+          debouncedLoadLocalData();
         }
       )
       .on(
@@ -518,7 +532,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "macro_overrides" },
         () => {
           console.log("[REALTIME] Ajuste manual detectado, atualizando...");
-          void loadLocalData("auto");
+          debouncedLoadLocalData();
         }
       )
       .on(
@@ -526,7 +540,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         { event: "INSERT", schema: "public", table: "telemetria_sync" },
         () => {
           console.log("[REALTIME] Nova telemetria detectada, atualizando...");
-          void loadLocalData("auto");
+          debouncedLoadLocalData();
         }
       )
       .on(
@@ -534,7 +548,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "motoristas" },
         () => {
           console.log("[REALTIME] Cadastro de motorista alterado, atualizando...");
-          void loadLocalData("auto");
+          debouncedLoadLocalData();
         }
       )
       .on(
@@ -542,7 +556,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "cadastros" },
         () => {
           console.log("[REALTIME] Vínculo de frota/motorista alterado, atualizando...");
-          void loadLocalData("auto");
+          debouncedLoadLocalData();
         }
       )
       .on(
@@ -550,7 +564,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "autotrac_vehicles" },
         () => {
           console.log("[REALTIME] Veículo alterado, atualizando...");
-          void loadLocalData("auto");
+          debouncedLoadLocalData();
         }
       )
       .subscribe();
@@ -565,9 +579,10 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     return () => {
       clearAutoRefreshTimer();
       clearInterval(syncInterval);
+      if (realtimeDebounceTimerRef.current) window.clearTimeout(realtimeDebounceTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [loadLocalData, clearAutoRefreshTimer, syncFromAutotrac]);
+  }, [loadLocalData, debouncedLoadLocalData, clearAutoRefreshTimer, syncFromAutotrac]);
 
   // Keep addEvents for XLSX import compatibility
   const addEvents = useCallback(
