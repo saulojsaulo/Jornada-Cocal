@@ -230,17 +230,14 @@ export function calculateJourney(
   now: Date = new Date(),
   window?: { start: Date; end: Date }
 ): JourneyCalculation {
+  // Define calculation bounds (No more clipping to 00:00-23:59 window as per user request)
+  const calcStart = journey.startTime;
   const journeyEnd = journey.endTime || now;
   
-  // Define effective calculation bounds
-  const calcStart = window 
-    ? (journey.startTime < window.start ? window.start : journey.startTime) 
-    : journey.startTime;
-  const calcEnd = window 
-    ? (journeyEnd > window.end ? window.end : journeyEnd) 
-    : journeyEnd;
+  // Stagnation check: If journey is open for > 24h with no events, cap it at 24h to avoid 60h+ bugs
+  const isStale = !journey.endTime && (now.getTime() - journey.startTime.getTime()) > 24 * 60 * 60000;
+  const calcEnd = isStale ? new Date(journey.startTime.getTime() + 24 * 60 * 60000) : journeyEnd;
 
-  // Clip duration to window
   const grossMinutes = Math.max(0, diffMinutes(calcStart, calcEnd));
 
   let mealMinutes = 0;

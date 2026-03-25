@@ -68,15 +68,7 @@ export default function ControleTab() {
 
       const selectedDayStart = new Date(`${selectedDate}T00:00:00`);
       const todayJourney = journeys
-        .filter(j => {
-          if (j.date === selectedDate) return true;
-          // Se começou num dia anterior, verificamos se ela abrange o dia atual
-          if (j.startTime < selectedDayStart) {
-            const hasEventOnSelectedDate = j.macros.some(m => toDateKey(m.createdAt) === selectedDate);
-            return !j.endTime ? true : (j.endTime > selectedDayStart || hasEventOnSelectedDate);
-          }
-          return false;
-        })
+        .filter(j => j.date === selectedDate)
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
         .at(-1) ?? null;
 
