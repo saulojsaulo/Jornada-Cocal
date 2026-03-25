@@ -9,6 +9,8 @@ import ProtectedRoute from "./components/ProtectedRoute.tsx";
 const Login = lazy(() => import("./pages/Login.tsx"));
 const Index = lazy(() => import("./pages/Index.tsx"));
 const FichaPontoReport = lazy(() => import("./pages/FichaPontoReport.tsx"));
+const AlteracoesManuaisReport = lazy(() => import("./pages/AlteracoesManuaisReport.tsx"));
+const AusenciaMarcacoesReport = lazy(() => import("./pages/AusenciaMarcacoesReport.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
@@ -35,6 +37,8 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/relatorio/ficha-ponto" element={<ProtectedRoute><FichaPontoReport /></ProtectedRoute>} />
+            <Route path="/relatorio/alteracoes-manuais" element={<ProtectedRoute><AlteracoesManuaisReport /></ProtectedRoute>} />
+            <Route path="/relatorio/ausencia-marcacoes" element={<ProtectedRoute><AusenciaMarcacoesReport /></ProtectedRoute>} />
             <Route path="/controle/*" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

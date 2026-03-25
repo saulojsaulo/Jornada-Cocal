@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FileText, Search, BarChart3 } from "lucide-react";
+import { FileText, Search, BarChart3, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -24,7 +24,7 @@ interface Cadastro {
 }
 
 type PeriodoType = "mes_atual" | "mes_anterior" | "personalizado";
-type ReportType = "ficha_ponto" | "ranking";
+type ReportType = "ficha_ponto" | "ranking" | "alteracoes_manuais" | "ausencia_marcacoes";
 
 export default function RelatoriosTab() {
   const [selectedReport, setSelectedReport] = useState<ReportType>("ficha_ponto");
@@ -150,7 +150,11 @@ export default function RelatoriosTab() {
       frota: selectedFrota !== "all" ? (driverCadastros.find(c => c.veiculo_id === selectedFrota)?.numero_frota || "") : "",
     });
 
-    window.open(`/relatorio/ficha-ponto?${params.toString()}`, "_blank");
+    let route = "/relatorio/ficha-ponto";
+    if (selectedReport === "alteracoes_manuais") route = "/relatorio/alteracoes-manuais";
+    if (selectedReport === "ausencia_marcacoes") route = "/relatorio/ausencia-marcacoes";
+
+    window.open(`${route}?${params.toString()}`, "_blank");
   };
 
 
@@ -160,6 +164,8 @@ export default function RelatoriosTab() {
   const reports: { id: ReportType; label: string; icon: typeof FileText }[] = [
     { id: "ficha_ponto", label: "Ficha de Ponto", icon: FileText },
     { id: "ranking", label: "Ranking de Horas Extras", icon: BarChart3 },
+    { id: "alteracoes_manuais", label: "Alterações Manuais", icon: FileText },
+    { id: "ausencia_marcacoes", label: "Ausência de Marcações", icon: AlertCircle },
   ];
 
   return (
@@ -189,10 +195,12 @@ export default function RelatoriosTab() {
 
       {selectedReport === "ranking" && <RankingTab />}
 
-      {selectedReport === "ficha_ponto" && (
+      {selectedReport !== "ranking" && (
         <div className="border rounded-lg p-6 bg-card space-y-6 max-w-2xl">
           <h3 className="font-medium text-sm flex items-center gap-2">
-            📋 Ficha de Ponto do Motorista
+            {selectedReport === "ficha_ponto" ? "📋 Ficha de Ponto do Motorista" :
+             selectedReport === "alteracoes_manuais" ? "🛡️ Relatório de Alterações Manuais" :
+             "⚠️ Relatório de Ausência de Marcações"}
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
