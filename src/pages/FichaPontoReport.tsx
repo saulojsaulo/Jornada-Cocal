@@ -52,7 +52,9 @@ interface TelPonto { position_time: string; speed: number; ignition: number; }
 function calcDrivingMinutes(pontos: TelPonto[], journeyStart: Date | null, journeyEnd: Date | null): { driving: number; stopped: number } {
   if (!journeyStart || !journeyEnd || pontos.length < 2) return { driving: 0, stopped: 0 };
   let driving = 0, stopped = 0;
-  const sorted = [...pontos].sort((a, b) => a.position_time.localeCompare(b.position_time));
+  const sorted = [...pontos]
+    .filter(p => p.position_time != null)
+    .sort((a, b) => (a.position_time || "").localeCompare(b.position_time || ""));
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i], b = sorted[i + 1];
     const ta = new Date(a.position_time), tb = new Date(b.position_time);
