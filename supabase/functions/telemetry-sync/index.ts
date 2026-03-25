@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const authHeader = `Basic ${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`;
+    const authHeader = `Basic ${btoa(`${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`)}`;
 
     // Parse optional body params
     let targetDate: string | null = null;

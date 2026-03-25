@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const credentials = `${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`;
-    const authHeader = `Basic ${credentials}`;
+    const authHeader = `Basic ${btoa(credentials)}`;
     console.log(`Auth configured for: ${AUTOTRAC_USERNAME}`);
     // 1. Get accounts to find the account code
     const accountsData = await autotracFetch("/v1/accounts", AUTOTRAC_API_KEY, authHeader);
