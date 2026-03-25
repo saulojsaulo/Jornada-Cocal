@@ -465,10 +465,10 @@ export default function FichaPontoReport() {
     return <div className="flex items-center justify-center min-h-screen"><p className="text-gray-500">Carregando relatório...</p></div>;
   }
 
-  const tdC = "border border-gray-300 px-1 py-0.5 text-center";
-  const tdL = "border border-gray-300 px-1 py-0.5";
-  const thC = "border border-gray-400 px-1 py-0.5 text-center bg-gray-200";
-  const thL = "border border-gray-400 px-1 py-0.5 text-left bg-gray-200";
+  const tdC = "border border-gray-300 text-center";
+  const tdL = "border border-gray-300 text-left";
+  const thC = "border border-gray-400 text-center bg-gray-200";
+  const thL = "border border-gray-400 text-left bg-gray-200";
 
   return (
     <div className="min-h-screen bg-white text-black p-3 print:p-0">
@@ -491,10 +491,18 @@ export default function FichaPontoReport() {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: clip;
-          font-size: 7pt;
-          line-height: 1.4;
+          font-size: 7.2pt;
+          line-height: 1;
+          height: 24px;
           vertical-align: middle;
-          padding: 2px 2px;
+          padding: 0 4px;
+          font-family: Arial, sans-serif;
+        }
+        #ficha-ponto-content th {
+          font-weight: bold;
+          text-transform: uppercase;
+          font-size: 6.8pt;
+          background-color: #f3f4f6; /* bg-gray-100 */
         }
       `}</style>
 
