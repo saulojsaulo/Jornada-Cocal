@@ -440,20 +440,22 @@ export default function FichaPontoReport() {
       const html2pdf = (await import("html2pdf.js")).default;
       const element = document.getElementById("ficha-ponto-content");
       if (!element) return;
+      // A4 landscape @ 96dpi ≈ 1122px wide, minus 2×6mm margins ≈ 1076px
+      const CONTENT_W = 1076;
       await html2pdf().set({
         margin: [6, 6, 6, 6],
         filename: `ficha-ponto-${motoristaNome.replace(/\s+/g, "_")}-${startDate}.pdf`,
         image: { type: "jpeg", quality: 1.0 },
         html2canvas: {
-          scale: 3,
+          scale: 2,
           useCORS: true,
           letterRendering: true,
           logging: false,
-          scrollX: 0,
-          scrollY: -window.scrollY,
+          windowWidth: CONTENT_W,
+          width: CONTENT_W,
         },
         jsPDF: { unit: "mm", format: "a4", orientation: "landscape", compress: true },
-        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+        pagebreak: { mode: ["css", "legacy"] },
       } as any).from(element).save();
     } catch (err) { console.error(err); }
     finally { setDownloading(false); }
@@ -476,15 +478,23 @@ export default function FichaPontoReport() {
           .no-print { display: none !important; }
         }
         @page { size: A4 landscape; margin: 6mm; }
-        #ficha-ponto-content table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        #ficha-ponto-content {
+          width: 1076px;
+          box-sizing: border-box;
+        }
+        #ficha-ponto-content table {
+          border-collapse: collapse;
+          width: 100%;
+          table-layout: auto;
+        }
         #ficha-ponto-content th, #ficha-ponto-content td {
           white-space: nowrap;
           overflow: hidden;
-          text-overflow: ellipsis;
-          font-size: 7.5pt;
-          line-height: 1.3;
+          text-overflow: clip;
+          font-size: 7pt;
+          line-height: 1.4;
           vertical-align: middle;
-          padding: 2px 3px;
+          padding: 2px 2px;
         }
       `}</style>
 
@@ -522,26 +532,18 @@ export default function FichaPontoReport() {
       </div>
 
       {/* Main Table */}
-      <table style={{ fontSize: "7pt", lineHeight: "1.15" }}>
+      <table style={{ fontSize: "7pt", lineHeight: "1.2", width: "100%" }}>
         <colgroup>
-          <col style={{ width: "68px" }} />
-          <col style={{ width: "54px" }} />
-          {/* Jornada */}
-          <col style={{ width: "38px" }} /><col style={{ width: "38px" }} />
-          {/* Normal / Diária */}
-          <col style={{ width: "40px" }} /><col style={{ width: "40px" }} />
-          {/* Em / Sem Direção */}
-          <col style={{ width: "40px" }} /><col style={{ width: "40px" }} />
-          {/* Refeição / Repouso */}
-          <col style={{ width: "40px" }} /><col style={{ width: "40px" }} />
-          {/* Faltas */}
-          <col style={{ width: "38px" }} />
-          {/* HE 50% ×3 */}
-          <col style={{ width: "36px" }} /><col style={{ width: "36px" }} /><col style={{ width: "36px" }} />
-          {/* HE 100% ×3 */}
-          <col style={{ width: "36px" }} /><col style={{ width: "36px" }} /><col style={{ width: "36px" }} />
-          {/* HN */}
-          <col style={{ width: "38px" }} />
+          <col style={{ width: "7%" }} />{/* Data */}
+          <col style={{ width: "5.5%" }} />{/* Tipo */}
+          <col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} />{/* Inicio/Fim */}
+          <col style={{ width: "5%" }} /><col style={{ width: "5%" }} />{/* Normal/Diária */}
+          <col style={{ width: "5%" }} /><col style={{ width: "5%" }} />{/* Em/Sem Direção */}
+          <col style={{ width: "5%" }} /><col style={{ width: "5%" }} />{/* Refeição/Repouso */}
+          <col style={{ width: "4.5%" }} />{/* Faltas */}
+          <col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} />{/* HE 50% */}
+          <col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} />{/* HE 100% */}
+          <col style={{ width: "5%" }} />{/* HN */}
         </colgroup>
         <thead>
           {/* Row 1 — group headers */}
