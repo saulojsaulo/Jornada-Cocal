@@ -483,6 +483,8 @@ export default function FichaPontoReport() {
           text-overflow: ellipsis;
           font-size: 7.5pt;
           line-height: 1.3;
+          vertical-align: middle;
+          padding: 2px 3px;
         }
       `}</style>
 
