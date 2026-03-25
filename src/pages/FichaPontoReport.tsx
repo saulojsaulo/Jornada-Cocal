@@ -438,14 +438,22 @@ export default function FichaPontoReport() {
     setDownloading(true);
     try {
       const html2pdf = (await import("html2pdf.js")).default;
-      const element = document.getElementById("ficha-ponto");
+      const element = document.getElementById("ficha-ponto-content");
       if (!element) return;
       await html2pdf().set({
-        margin: [4, 4, 4, 4],
+        margin: [6, 6, 6, 6],
         filename: `ficha-ponto-${motoristaNome.replace(/\s+/g, "_")}-${startDate}.pdf`,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+        image: { type: "jpeg", quality: 1.0 },
+        html2canvas: {
+          scale: 3,
+          useCORS: true,
+          letterRendering: true,
+          logging: false,
+          scrollX: 0,
+          scrollY: -window.scrollY,
+        },
+        jsPDF: { unit: "mm", format: "a4", orientation: "landscape", compress: true },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       } as any).from(element).save();
     } catch (err) { console.error(err); }
     finally { setDownloading(false); }
@@ -461,12 +469,21 @@ export default function FichaPontoReport() {
   const thL = "border border-gray-400 px-1 py-0.5 text-left bg-gray-200";
 
   return (
-    <div className="min-h-screen bg-white text-black p-3 print:p-1" id="ficha-ponto">
+    <div className="min-h-screen bg-white text-black p-3 print:p-0">
       <style>{`
-        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none !important; } }
-        @page { size: A4 landscape; margin: 4mm; }
-        #ficha-ponto table { border-collapse: collapse; width: 100%; }
-        #ficha-ponto th, #ficha-ponto td { white-space: nowrap; }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .no-print { display: none !important; }
+        }
+        @page { size: A4 landscape; margin: 6mm; }
+        #ficha-ponto-content table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        #ficha-ponto-content th, #ficha-ponto-content td {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: 7.5pt;
+          line-height: 1.3;
+        }
       `}</style>
 
       {/* Action buttons */}
@@ -481,10 +498,18 @@ export default function FichaPontoReport() {
         </button>
       </div>
 
+      <div id="ficha-ponto-content">
       {/* Header */}
-      <div className="text-center mb-2 border-b-2 border-black pb-1">
-        <h1 className="text-sm font-bold uppercase">Ficha de Ponto Simplificada</h1>
-        <p className="text-[10px]">{COMPANY_NAME}</p>
+      <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-2">
+        <img src="/logo-jornada.png" alt="Logo" style={{ height: "40px", objectFit: "contain" }} />
+        <div className="text-center">
+          <h1 className="text-sm font-bold uppercase tracking-wide">Ficha de Ponto Simplificada</h1>
+          <p className="text-[9px] text-gray-500 uppercase tracking-widest">Controle de Jornada do Motorista</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[9px] text-gray-500">Competência:</p>
+          <p className="text-[10px] font-semibold capitalize">{mesLabel}</p>
+        </div>
       </div>
 
       {/* Driver Info */}
@@ -620,6 +645,8 @@ export default function FichaPontoReport() {
       <div className="mt-3 text-center text-[7px] text-gray-400 no-print">
         Gerado em {new Date().toLocaleString("pt-BR")}
       </div>
+      </div>{/* end ficha-ponto-content */}
     </div>
+
   );
 }
