@@ -70,7 +70,8 @@ export default function RelatoriosTab() {
   const fmt = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-  const handleGenerate = () => {
+
+  const handleGenerate = async () => {
     if (!selectedMotorista) {
       toast.error("Selecione um motorista");
       return;
@@ -90,7 +91,6 @@ export default function RelatoriosTab() {
         const vName = (v.name || "").trim();
         const numMatch = vName.match(/^(\d+)/);
         const vFrota = numMatch ? numMatch[1] : "";
-        // Try exact, stripped zeros, and padded zeros matching
         return (
           vFrota === frotaNum ||
           vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") ||
@@ -105,14 +105,33 @@ export default function RelatoriosTab() {
     let vehicleCodes: string[];
     if (selectedFrota !== "all") {
       const cad = driverCadastros.find(c => c.veiculo_id === selectedFrota);
-      if (cad) {
-        const vc = resolveVehicleCode(cad);
-        vehicleCodes = vc ? [vc] : [];
-      } else {
-        vehicleCodes = [];
-      }
+      vehicleCodes = cad ? [resolveVehicleCode(cad)].filter(Boolean) as string[] : [];
     } else {
       vehicleCodes = driverCadastros.map(c => resolveVehicleCode(c)).filter(Boolean) as string[];
+    }
+
+    // If no vehicle codes resolved but driver has senha: discover codes from autotrac_eventos
+    if (vehicleCodes.length === 0 && motorista?.senha) {
+      toast.info("Buscando veículos associados ao motorista...");
+      try {
+        // Same OR filter logic used in MovimentoCondutorTab
+        const orQuery = `raw_data->>MessageText.ilike.%_${motorista.senha}%`;
+        const startISO = new Date(start + "T00:00:00").toISOString();
+        const endISO = new Date(end + "T23:59:59").toISOString();
+
+        const { data: discoverData, error } = await (supabase as any)
+          .from("autotrac_eventos")
+          .select("vehicle_code")
+          .gte("message_time", startISO)
+          .lte("message_time", endISO)
+          .or(orQuery);
+
+        if (!error && discoverData?.length) {
+          const codeSet = new Set<string>();
+          for (const row of discoverData) codeSet.add(String(row.vehicle_code));
+          vehicleCodes = Array.from(codeSet);
+        }
+      } catch (_) { /* ignore, proceed with empty codes */ }
     }
 
     if (vehicleCodes.length === 0 && !motorista?.senha) {
@@ -133,6 +152,7 @@ export default function RelatoriosTab() {
 
     window.open(`/relatorio/ficha-ponto?${params.toString()}`, "_blank");
   };
+
 
   const motoristaObj = motoristas.find(m => m.id === selectedMotorista);
   const frotasDoMotorista = cadastros.filter(c => c.motorista_id === selectedMotorista || c.motorista_nome === motoristaObj?.nome);
