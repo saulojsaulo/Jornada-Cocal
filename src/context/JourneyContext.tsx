@@ -41,6 +41,9 @@ interface JourneyStore {
   getDayMark: (vehicleId: string, date: string) => DayMarkInfo | null;
   /** Get day mark for a driver id (folgas specific to drivers unconditionally) on a given date */
   getDriverDayMark: (driverId: string, date: string) => DayMarkInfo | null;
+  motoristas: any[];
+  cadastros: any[];
+  autotracVehicles: any[];
 }
 
 const JourneyContext = createContext<JourneyStore | null>(null);
@@ -109,6 +112,9 @@ const HMR_FALLBACK_STORE: JourneyStore = {
   driverDayMarks: new Map(),
   getDayMark: () => null,
   getDriverDayMark: () => null,
+  motoristas: [],
+  cadastros: [],
+  autotracVehicles: [],
 };
 
 export function JourneyProvider({ children }: { children: React.ReactNode }) {
@@ -123,6 +129,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const [driverDayMarks, setDriverDayMarks] = useState<Map<string, DayMarkInfo>>(new Map());
   const [vehiclePositions, setVehiclePositions] = useState<Map<string, { endereco: string; latitude: number | null; longitude: number | null; dataPosicao: string | null }>>(new Map());
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [motoristas, setMotoristas] = useState<any[]>([]);
+  const [cadastros, setCadastros] = useState<any[]>([]);
+  const [autotracVehicles, setAutotracVehicles] = useState<any[]>([]);
   const isFirstLoad = useRef(true);
   const isFetchingRef = useRef(false);
   const fetchRef = useRef<(() => Promise<void>) | null>(null);
@@ -209,6 +218,8 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       });
 
       setVehicles(mappedVehicles);
+      setCadastros(cadastrosData || []);
+      setAutotracVehicles(vehiclesData || []);
 
       // Fetch events from local autotrac_eventos with fallback window
       const fetchEventsByWindow = async (daysWindow: number, pageSize: number = 600, includeDriverPassword = true) => {
@@ -284,6 +295,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
             for (const mot of motoristasData) {
               if (mot.senha) driverBySenha.set(mot.senha, { id: mot.id, nome: mot.nome });
             }
+            setMotoristas(motoristasData);
           }
         } catch {
           // senha column not yet migrated — skip driver identification silently
@@ -517,6 +529,30 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
           void loadLocalData("auto");
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "motoristas" },
+        () => {
+          console.log("[REALTIME] Cadastro de motorista alterado, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cadastros" },
+        () => {
+          console.log("[REALTIME] Vínculo de frota/motorista alterado, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "autotrac_vehicles" },
+        () => {
+          console.log("[REALTIME] Veículo alterado, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
       .subscribe();
 
     // 10-minute Background Sync from Autotrac Cloud
@@ -634,9 +670,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData,
       isLoading, isSyncing, error, folgaVehicles, toggleFolga,
       vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac,
-      dayMarks, getDayMark,
+      dayMarks, getDayMark, motoristas, cadastros, autotracVehicles
     }),
-    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, getDayMark]
+    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, getDayMark, motoristas, cadastros, autotracVehicles]
   );
 
   return <JourneyContext.Provider value={value}>{children}</JourneyContext.Provider>;

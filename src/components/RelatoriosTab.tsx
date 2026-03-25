@@ -1,12 +1,6 @@
-import { useState, useEffect } from "react";
-import { FileText, Search, BarChart3, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
 import RankingTab from "@/components/RankingTab";
 import { toast } from "sonner";
+import { useJourneyStore } from "@/context/JourneyContext";
 
 interface Motorista {
   id: string;
@@ -27,30 +21,14 @@ type PeriodoType = "mes_atual" | "mes_anterior" | "personalizado";
 type ReportType = "ficha_ponto" | "ranking" | "alteracoes_manuais" | "ausencia_marcacoes";
 
 export default function RelatoriosTab() {
+  const { motoristas, cadastros, autotracVehicles } = useJourneyStore();
   const [selectedReport, setSelectedReport] = useState<ReportType>("ficha_ponto");
-  const [motoristas, setMotoristas] = useState<Motorista[]>([]);
-  const [cadastros, setCadastros] = useState<Cadastro[]>([]);
-  const [autotracVehicles, setAutotracVehicles] = useState<any[]>([]);
+
   const [selectedMotorista, setSelectedMotorista] = useState<string>("");
   const [selectedFrota, setSelectedFrota] = useState<string>("all");
   const [periodo, setPeriodo] = useState<PeriodoType>("mes_atual");
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    const [{ data: mData }, { data: cData }, { data: avData }] = await Promise.all([
-      supabase.from("motoristas").select("id, nome, cpf, senha").eq("ativo", true).order("nome"),
-      supabase.from("cadastros").select("veiculo_id, nome_veiculo, numero_frota, motorista_nome, motorista_id").eq("ativo", true),
-      (supabase as any).from("autotrac_vehicles").select("vehicle_code, name"),
-    ]);
-    if (mData) setMotoristas(mData);
-    if (cData) setCadastros(cData);
-    if (avData) setAutotracVehicles(avData);
-  };
 
   const getDateRange = (): { start: string; end: string } => {
     const now = new Date();
