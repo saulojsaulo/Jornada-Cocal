@@ -477,15 +477,61 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadLocalData]);
 
-  // Initial load with adaptive auto-refresh
+  // Initial load with adaptive auto-refresh and REALTIME
   useEffect(() => {
     fetchRef.current = () => loadLocalData("auto");
     void loadLocalData("auto");
 
+    // Subscribe to Realtime changes
+    const channel = supabase
+      .channel("auto-refresh-channel")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "autotrac_eventos" },
+        () => {
+          console.log("[REALTIME] Novo evento detectado, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "autotrac_positions" },
+        () => {
+          console.log("[REALTIME] Posição atualizada, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "macro_overrides" },
+        () => {
+          console.log("[REALTIME] Ajuste manual detectado, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "telemetria_sync" },
+        () => {
+          console.log("[REALTIME] Nova telemetria detectada, atualizando...");
+          void loadLocalData("auto");
+        }
+      )
+      .subscribe();
+
+    // 10-minute Background Sync from Autotrac Cloud
+    // This ensures data is pulled from Autotrac API automatically every 10 mins
+    const syncInterval = setInterval(() => {
+      console.log("[AUTO-SYNC] Iniciando sincronização programada com Autotrac...");
+      void syncFromAutotrac();
+    }, 10 * 60 * 1000);
+
     return () => {
       clearAutoRefreshTimer();
+      clearInterval(syncInterval);
+      supabase.removeChannel(channel);
     };
-  }, [loadLocalData, clearAutoRefreshTimer]);
+  }, [loadLocalData, clearAutoRefreshTimer, syncFromAutotrac]);
 
   // Keep addEvents for XLSX import compatibility
   const addEvents = useCallback(

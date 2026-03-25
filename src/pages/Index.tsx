@@ -79,6 +79,10 @@ function JourneyDashboard() {
                   />
                 </div>
               )}
+              <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-500 border border-green-500/20 mr-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Live</span>
+              </div>
               <button
                 onClick={syncFromAutotrac}
                 disabled={isSyncing}

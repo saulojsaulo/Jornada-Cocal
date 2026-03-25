@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Search, RefreshCw, Plus, Pencil, Trash2 } from "lucide-react";
 import { useJourneyStore } from "@/context/JourneyContext";
 import { Vehicle, Journey, JourneyCalculation, STATUS_LABELS, STATUS_ROW_CLASSES, VehicleStatus, MacroNumber, MacroEvent } from "@/types/journey";
-import { calculateJourneyForDate, calculateInterjornada, buildTimeline, formatMinutes, getJourneyForDate } from "@/lib/journeyEngine";
+import { calculateJourneyForDate, calculateInterjornada, buildTimeline, formatMinutes, getJourneyForDate, toDateKey } from "@/lib/journeyEngine";
 import TimelineBar from "./TimelineBar";
 import TelemetryBar from "./TelemetryBar";
 import SummaryCards from "./SummaryCards";
@@ -72,7 +72,8 @@ export default function ControleTab() {
           if (j.date === selectedDate) return true;
           // Se começou num dia anterior, verificamos se ela abrange o dia atual
           if (j.startTime < selectedDayStart) {
-            return !j.endTime || j.endTime > selectedDayStart;
+            const hasEventOnSelectedDate = j.macros.some(m => toDateKey(m.createdAt) === selectedDate);
+            return !j.endTime ? true : (j.endTime > selectedDayStart || hasEventOnSelectedDate);
           }
           return false;
         })
@@ -120,7 +121,7 @@ export default function ControleTab() {
   const gestorList = useMemo(() => {
     const names = new Set<string>();
     for (const row of rows) {
-      if (row.vehicle.gestorName) names.add(row.vehicle.gestorName);
+      if (row.vehicle?.gestorName) names.add(row.vehicle.gestorName);
     }
     return Array.from(names).sort();
   }, [rows]);
@@ -718,6 +719,7 @@ function ExpandedDetails({
           vehicleCode={row.vehicle.id}
           resolveEndereco={resolveEndereco}
           onMacroChanged={() => refreshData()}
+          selectedDate={selectedDate}
         />
       )}
     </div>
@@ -729,20 +731,23 @@ function MacroList({
   vehicleCode,
   resolveEndereco,
   onMacroChanged,
+  selectedDate,
 }: {
   journey: Journey;
   vehicleCode: string;
   resolveEndereco: (event: { vehicleId: string; macroNumber: number; createdAt: Date; endereco?: string | null }) => string | null;
   onMacroChanged: () => void;
+  selectedDate: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"insert" | "edit" | "delete">("insert");
   const [selectedMacro, setSelectedMacro] = useState<MacroEvent | null>(null);
 
-  const journeyMacros = useMemo(
-    () => [...journey.macros].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
-    [journey.macros]
-  );
+  const journeyMacros = useMemo(() => {
+    return [...journey.macros]
+      .filter(m => toDateKey(m.createdAt) === selectedDate)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }, [journey.macros, selectedDate]);
 
   const handleSaveOverride = async (data: {
     action: "insert" | "edit" | "delete";

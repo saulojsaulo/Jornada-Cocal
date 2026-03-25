@@ -223,11 +223,25 @@ function buildJourneysSequential(events: MacroEvent[]): Journey[] {
 }
 
 /**
- * Calculate journey metrics
+ * Calculate journey metrics, optionally clipped to a specific time window.
  */
-export function calculateJourney(journey: Journey, now: Date = new Date()): JourneyCalculation {
-  const endTime = journey.endTime || now;
-  const grossMinutes = diffMinutes(journey.startTime, endTime);
+export function calculateJourney(
+  journey: Journey, 
+  now: Date = new Date(),
+  window?: { start: Date; end: Date }
+): JourneyCalculation {
+  const journeyEnd = journey.endTime || now;
+  
+  // Define effective calculation bounds
+  const calcStart = window 
+    ? (journey.startTime < window.start ? window.start : journey.startTime) 
+    : journey.startTime;
+  const calcEnd = window 
+    ? (journeyEnd > window.end ? window.end : journeyEnd) 
+    : journeyEnd;
+
+  // Clip duration to window
+  const grossMinutes = Math.max(0, diffMinutes(calcStart, calcEnd));
 
   let mealMinutes = 0;
   let restMinutes = 0;
@@ -235,46 +249,78 @@ export function calculateJourney(journey: Journey, now: Date = new Date()): Jour
 
   const macros = [...journey.macros].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-  // Calculate pauses
+  // Calculate pauses with clipping
   let openMeal: Date | null = null;
   let openRest: Date | null = null;
   let openComplement: Date | null = null;
 
+  const getClippedDuration = (start: Date, end: Date) => {
+    const s = start < calcStart ? calcStart : start;
+    const e = end > calcEnd ? calcEnd : end;
+    return Math.max(0, diffMinutes(s, e));
+  };
+
   for (const m of macros) {
     switch (m.macroNumber) {
       case 3: openMeal = m.createdAt; break;
-      case 4: if (openMeal) { mealMinutes += diffMinutes(openMeal, m.createdAt); openMeal = null; } break;
+      case 4: 
+        if (openMeal) { 
+          mealMinutes += getClippedDuration(openMeal, m.createdAt); 
+          openMeal = null; 
+        } 
+        break;
       case 5: openRest = m.createdAt; break;
-      case 6: if (openRest) { restMinutes += diffMinutes(openRest, m.createdAt); openRest = null; } break;
+      case 6: 
+        if (openRest) { 
+          restMinutes += getClippedDuration(openRest, m.createdAt); 
+          openRest = null; 
+        } 
+        break;
       case 9: openComplement = m.createdAt; break;
-      case 10: if (openComplement) { complementMinutes += diffMinutes(openComplement, m.createdAt); openComplement = null; } break;
+      case 10: 
+        if (openComplement) { 
+          complementMinutes += getClippedDuration(openComplement, m.createdAt); 
+          openComplement = null; 
+        } 
+        break;
     }
   }
 
-  // If pause still open, count until now/end
-  if (openMeal) mealMinutes += diffMinutes(openMeal, endTime);
-  if (openRest) restMinutes += diffMinutes(openRest, endTime);
-  if (openComplement) complementMinutes += diffMinutes(openComplement, endTime);
+  // If pause still open, count until calcEnd (which is already clipped to now/end/windowEnd)
+  if (openMeal) mealMinutes += getClippedDuration(openMeal, calcEnd);
+  if (openRest) restMinutes += getClippedDuration(openRest, calcEnd);
+  if (openComplement) complementMinutes += getClippedDuration(openComplement, calcEnd);
 
   const netMinutes = Math.max(0, grossMinutes - mealMinutes - restMinutes - complementMinutes);
   const overtimeMinutes = Math.max(0, netMinutes - 480); // > 8h
   const remainingMinutes = Math.max(0, 720 - netMinutes); // 12h limit
 
-  // Status
+  // Status is always global (not clipped by window)
   let status: VehicleStatus = "em_jornada";
   if (journey.endTime) {
     status = "em_interjornada";
   } else {
-    // Check last open pause
-    if (openMeal) status = "em_refeicao";
-    else if (openRest) status = "em_repouso";
-    else if (openComplement) status = "em_complemento";
+    // Check last open pause globally
+    const lastOpenMeal = macros.filter(m => m.macroNumber === 3).pop();
+    const lastCloseMeal = macros.filter(m => m.macroNumber === 4).pop();
+    const lastOpenRest = macros.filter(m => m.macroNumber === 5).pop();
+    const lastCloseRest = macros.filter(m => m.macroNumber === 6).pop();
+    const lastOpenComp = macros.filter(m => m.macroNumber === 9).pop();
+    const lastCloseComp = macros.filter(m => m.macroNumber === 10).pop();
+
+    const isMealOpen = lastOpenMeal && (!lastCloseMeal || lastCloseMeal.createdAt < lastOpenMeal.createdAt);
+    const isRestOpen = lastOpenRest && (!lastCloseRest || lastCloseRest.createdAt < lastOpenRest.createdAt);
+    const isCompOpen = lastOpenComp && (!lastCloseComp || lastCloseComp.createdAt < lastOpenComp.createdAt);
+
+    if (isMealOpen) status = "em_refeicao";
+    else if (isRestOpen) status = "em_repouso";
+    else if (isCompOpen) status = "em_complemento";
     else status = "em_jornada";
   }
 
-  // Meal alert: > 6h since macro 1 without macro 3
-  const hasMealStart = macros.some(m => m.macroNumber === 3);
+  // Meal alert: > 6h since start without macro 3
   const hoursSinceStart = diffMinutes(journey.startTime, now) / 60;
+  const hasMealStart = macros.some(m => m.macroNumber === 3);
   const mealAlert = !hasMealStart && hoursSinceStart > 6 && !journey.endTime;
 
   return {
@@ -294,46 +340,37 @@ export function calculateJourney(journey: Journey, now: Date = new Date()): Jour
 
 /**
  * Find the journey for the selected day.
- * A journey belongs to the day where Macro 1 was registered.
  */
 export function getJourneyForDate(
   journeys: Journey[],
   dateKey: string,
   _now: Date = new Date()
 ): Journey | null {
-  // Strictly filter: only journeys whose data_jornada/date matches the selected date
   const sameDateJourneys = journeys
     .filter((j) => j.date === dateKey)
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
   if (sameDateJourneys.length === 0) return null;
 
-  // Prefer open journeys (active right now)
   const openJourneys = sameDateJourneys.filter((j) => !j.endTime);
   if (openJourneys.length > 0) return openJourneys[openJourneys.length - 1];
 
-  // Otherwise return the latest closed journey
   return sameDateJourneys[sameDateJourneys.length - 1];
 }
 
 /**
- * Calculate journey metrics for the selected day context without clipping the start to 00:00.
- * Journey always starts at Macro 1 and ends at Macro 2.
+ * Calculate journey metrics for the selected day context with daily clipping (00:00 - 23:59).
  */
 export function calculateJourneyForDate(
   journey: Journey,
   dateKey: string,
   now: Date = new Date()
 ): JourneyCalculation {
-  const isSelectedDayToday = toDateKey(now) === dateKey;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
 
-  const referenceNow = journey.endTime
-    ? journey.endTime
-    : isSelectedDayToday
-      ? now
-      : new Date(`${dateKey}T23:59:59.999`);
-
-  return calculateJourney(journey, referenceNow);
+  return calculateJourney(journey, now, { start: dayStart, end: dayEnd });
 }
 
 /**
