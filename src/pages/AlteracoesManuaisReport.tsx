@@ -131,10 +131,13 @@ export default function AlteracoesManuaisReport() {
       </div>
 
       <div id="report-content" className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-start border-b-2 border-gray-800 pb-4 mb-6">
-          <div>
-            <h1 className="text-xl font-bold uppercase">Relatório de Alterações Manuais</h1>
-            <p className="text-sm text-gray-600">Auditoria de Jornada de Trabalho</p>
+        <div className="flex justify-between items-end border-b-2 border-gray-800 pb-4 mb-6">
+          <div className="flex items-center gap-4">
+            <img src="/logo-jornada.png" alt="Logo" style={{ height: "50px", objectFit: "contain" }} />
+            <div>
+              <h1 className="text-xl font-bold uppercase">Relatório de Alterações Manuais</h1>
+              <p className="text-sm text-gray-600">Auditoria de Jornada de Trabalho</p>
+            </div>
           </div>
           <div className="text-right text-sm">
             <p><strong>Motorista:</strong> {motoristaNome}</p>

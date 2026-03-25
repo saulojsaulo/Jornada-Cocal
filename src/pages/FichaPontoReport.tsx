@@ -521,7 +521,7 @@ export default function FichaPontoReport() {
       <div id="ficha-ponto-content">
       {/* Header */}
       <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-2">
-        <img src="/logo-jornada.png" alt="Logo" style={{ height: "40px", objectFit: "contain" }} />
+        <img src="/logo-jornada.png" alt="Logo" style={{ height: "50px", objectFit: "contain" }} />
         <div className="text-center">
           <h1 className="text-sm font-bold uppercase tracking-wide">Ficha de Ponto Simplificada</h1>
           <p className="text-[9px] text-gray-500 uppercase tracking-widest">Controle de Jornada do Motorista</p>
