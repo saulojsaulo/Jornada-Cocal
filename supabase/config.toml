@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.telemetry-sync]
 verify_jwt = false
+
+[functions.dashboard-aggregator]
+verify_jwt = false

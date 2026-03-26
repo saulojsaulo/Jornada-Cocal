@@ -31,6 +31,19 @@ SELECT cron.schedule(
     $$
 );
 
+-- 4. Schedule 'dashboard-aggregator' every 5 minutes
+SELECT cron.schedule(
+    'invoke-dashboard-aggregator',
+    '*/5 * * * *', -- cron format: every 5 minutes
+    $$
+    SELECT net.http_post(
+        url:='https://uewhtmagmftsyzzbeuux.supabase.co/functions/v1/dashboard-aggregator',
+        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
+        body:='{}'::jsonb
+    ) as request_id;
+    $$
+);
+
 -- NOTE: To view logs or delete the cron jobs later, you can use:
 -- SELECT * FROM cron.job;
 -- SELECT cron.unschedule('invoke-autotrac-sync');

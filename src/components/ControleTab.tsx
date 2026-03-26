@@ -99,6 +99,14 @@ export default function ControleTab() {
 
       if (todayJourney) {
         calc = calculateJourneyForDate(todayJourney, selectedDate, now);
+        
+        // SYNC WITH RESUMO: if local calc is 0 but summary has data, use summary
+        if (calc.netMinutes === 0 && rData?.total_jornada_hoje && rData.total_jornada_hoje !== "00:00") {
+          const [h, m] = rData.total_jornada_hoje.split(":").map(Number);
+          calc.netMinutes = (h * 60) + m;
+          calc.totalHours = rData.total_jornada_hoje;
+        }
+
         const inter = calculateInterjornada(prevJourney, todayJourney);
         calc.interjournadaAlert = inter.alert;
         calc.interjournadaMinutes = inter.minutes;
@@ -119,22 +127,25 @@ export default function ControleTab() {
         }
       } else if (rData) {
         // Build a minimal calc object from resumo if no live journeys available
+        const [h, m] = (rData.total_jornada_hoje || "00:00").split(":").map(Number);
+        const netMins = (h * 60) + m;
+
         calc = {
           status: (statusMap[rData.status_atual] as any) || "em_interjornada",
-          netMinutes: 0,
-          grossMinutes: 0,
-          overtimeMinutes: 0,
+          netMinutes: netMins,
+          grossMinutes: netMins, // Fallback gross to net if unknown
+          overtimeMinutes: Math.max(0, netMins - 480),
           mealMinutes: 0,
           restMinutes: 0,
           waitingMinutes: 0,
-          remainingMinutes: 600,
-          isOvertime: false,
+          remainingMinutes: Math.max(0, 720 - netMins),
+          isOvertime: netMins > 480,
           mealAlert: false,
           interjournadaAlert: "none",
           interjournadaMinutes: 660,
           nightMinutes: 0,
-          totalHours: "00:00",
-          extraHours: "00:00"
+          totalHours: rData.total_jornada_hoje || "00:00",
+          extraHours: formatMinutes(Math.max(0, netMins - 480))
         };
       }
 
