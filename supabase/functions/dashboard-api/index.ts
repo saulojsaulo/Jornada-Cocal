@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
       supabase.from("cadastros").select("id, veiculo_id, motorista_nome, gestor_nome, numero_frota").eq("ativo", true),
       supabase.from("motoristas").select("id, nome, senha"),
       eventQuery,
-      supabase.from("autotrac_positions").select("vehicle_code, landmark, latitude, longitude, position_time"),
+      supabase.from("autotrac_posicoes").select("vehicle_code, landmark, latitude, longitude, position_time"),
       supabase.from("macro_overrides")
         .select("id, vehicle_code, original_event_id, action, macro_number, event_time, reason")
         .gte("event_time", start.toISOString())
@@ -162,7 +162,10 @@ Deno.serve(async (req) => {
       cadastros: cadastros || [],
       motoristas: motoristas || [],
       events: events || [],
-      positions: positions || [],
+      positions: (positions || []).map((p: any) => ({
+        ...p,
+        position_time: p.position_time // Ensure it's mapped correctly if needed
+      })),
       overrides: overrides || [],
       telemetry: telemetry,
       syncedAt: new Date().toISOString()

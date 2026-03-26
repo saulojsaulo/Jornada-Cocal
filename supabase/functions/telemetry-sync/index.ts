@@ -33,9 +33,10 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 async function autotracFetch(path: string, apiKey: string, authHeader: string): Promise<any> {
   const url = `${AUTOTRAC_BASE_URL}${path}`;
   const headers: Record<string, string> = {
-    "Ocp-Apim-Subscription-Key": apiKey,
-    Authorization: authHeader,
-    Accept: "application/json",
+    "Ocp-Apim-Subscription-Key": apiKey.trim(),
+    "Authorization": authHeader, // Literal Basic user:pass
+    "Content-Type": "application/json",
+    "Accept": "application/json",
   };
 
   const resp = await fetch(url, { 
@@ -130,7 +131,8 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const authHeader = `Basic ${btoa(`${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`)}`;
+    const credentials = `${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`;
+    const authHeader = `Basic ${credentials}`;
 
     // Parse optional body params
     let targetDate: string | null = null;

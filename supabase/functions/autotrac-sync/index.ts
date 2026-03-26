@@ -164,37 +164,49 @@ Deno.serve(async (req) => {
       else console.log(`Upserted ${vehicleRows.length} vehicles`);
     }
 
-    // 3. Fetch latest positions for ALL vehicles in ONE call (Massively faster)
-    console.log(`Fetching latest positions for ${vehicles.length} vehicles...`);
+    // 3. Fetch latest positions for ALL vehicles in PARALLEL (Since Batch doesn't seem to exist)
+    console.log(`Fetching latest positions for ${vehicles.length} vehicles in parallel...`);
     let totalPositions = 0;
-    try {
-      const allPosData = await autotracFetch(
-        `/v1/accounts/${accountCode}/vehicles/positions`,
-        AUTOTRAC_API_KEY,
-        authHeader
-      );
-      const allPositions = allPosData?.Data || allPosData || [];
-      if (Array.isArray(allPositions) && allPositions.length > 0) {
-        const posRows = allPositions.map((p: any) => ({
-          vehicle_code: p.VehicleCode,
-          latitude: p.Latitude,
-          longitude: p.Longitude,
-          landmark: p.Landmark || null,
-          speed: p.Speed || 0,
-          ignition: p.Ignition || 0,
-          position_time: p.PositionTime || null,
-          updated_at: new Date().toISOString(),
-        }));
+    const posRows: any[] = [];
+    const FETCH_BATCH_SIZE = 50;
+    
+    for (let i = 0; i < vehicles.length; i += FETCH_BATCH_SIZE) {
+      const batch = vehicles.slice(i, i + FETCH_BATCH_SIZE);
+      await Promise.all(batch.map(async (v) => {
+        try {
+          // Fetch just the last position (default limit is small or we can add _limit=1)
+          const posData = await autotracFetch(
+            `/v1/accounts/${accountCode}/vehicles/${v.Code}/positions?_limit=1`,
+            AUTOTRAC_API_KEY,
+            authHeader
+          );
+          const lastPos = posData?.Data?.[0] || posData?.[0];
+          if (lastPos) {
+            posRows.push({
+              vehicle_code: v.Code,
+              latitude: lastPos.Latitude,
+              longitude: lastPos.Longitude,
+              landmark: lastPos.Landmark || null,
+              speed: lastPos.Velocity || lastPos.Speed || 0,
+              ignition: lastPos.VehicleIgnition || lastPos.Ignition || 0,
+              position_time: lastPos.PositionTime || null,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          // Ignore individual vehicle errors to proceed with others
+          console.error(`Error fetching position for vehicle ${v.Code}:`, err);
+        }
+      }));
+    }
 
-        const { error: pErr } = await supabase
-          .from("autotrac_positions")
-          .upsert(posRows, { onConflict: "vehicle_code" });
-        
-        if (pErr) console.error("Error upserting all positions:", pErr);
-        else totalPositions = posRows.length;
-      }
-    } catch (posErr) {
-      console.error("Error fetching all positions:", posErr);
+    if (posRows.length > 0) {
+      const { error: pErr } = await supabase
+        .from("autotrac_posicoes")
+        .upsert(posRows, { onConflict: "vehicle_code" });
+      
+      if (pErr) console.error("Error upserting all positions:", pErr);
+      else totalPositions = posRows.length;
     }
 
     // 4. Fetch return messages (macro events) - skip if quick mode
