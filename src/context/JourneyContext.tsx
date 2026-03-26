@@ -113,8 +113,8 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       console.log(`[STATE] Sincronizando dados do cache para o estado do contexto...`);
       
       // Map vehicles
-      const mappedVehicles: Vehicle[] = queryData.vehicles.map((v: any) => {
-        const cadastro = queryData.cadastros.find((c: any) => String(c.veiculo_id) === String(v.vehicle_code) || String(c.numero_frota) === String(v.vehicle_code));
+      const mappedVehicles: Vehicle[] = (queryData.vehicles || []).map((v: any) => {
+        const cadastro = (queryData.cadastros || []).find((c: any) => String(c.veiculo_id) === String(v.vehicle_code) || String(c.numero_frota) === String(v.vehicle_code));
         return {
           id: String(v.vehicle_code),
           name: v.name,
@@ -125,12 +125,12 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
         };
       });
       setVehicles(mappedVehicles);
-      setCadastros(queryData.cadastros);
-      setAutotracVehicles(queryData.vehicles);
-      setMotoristas(queryData.motoristas);
+      setCadastros(queryData.cadastros || []);
+      setAutotracVehicles(queryData.vehicles || []);
+      setMotoristas(queryData.motoristas || []);
 
       // Map events
-      const mappedEvents: MacroEvent[] = queryData.events.map((e: any) => ({
+      const mappedEvents: MacroEvent[] = (queryData.events || []).map((e: any) => ({
         id: e.id,
         vehicleId: String(e.vehicle_code),
         macroNumber: e.macro_number as MacroNumber,
@@ -147,7 +147,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
 
       // Map positions
       const posMap = new Map();
-      queryData.positions.forEach((p: any) => {
+      (queryData.positions || []).forEach((p: any) => {
         posMap.set(String(p.vehicle_code), {
           endereco: p.landmark?.trim() || "",
           latitude: p.latitude ? Number(p.latitude) : null,
@@ -160,7 +160,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       // Map day marks from overrides
       const marks = new Map<string, DayMarkInfo>();
       const dMarks = new Map<string, DayMarkInfo>();
-      queryData.overrides.forEach((o: any) => {
+      (queryData.overrides || []).forEach((o: any) => {
         if (DAY_MARK_ACTIONS.has(o.action)) {
           const info: DayMarkInfo = {
             type: o.action as DayMarkType,
@@ -171,7 +171,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
           const dateKey = toDateKey(new Date(o.event_time));
           marks.set(`${o.vehicle_code}_${dateKey}`, info);
           
-          const motorista = queryData.cadastros.find((c: any) => String(c.veiculo_id) === String(o.vehicle_code));
+          const motorista = (queryData.cadastros || []).find((c: any) => String(c.veiculo_id) === String(o.vehicle_code));
           if (motorista?.motorista_nome) {
             dMarks.set(`${motorista.motorista_nome}_${dateKey}`, info);
           }

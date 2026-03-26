@@ -105,10 +105,18 @@ Deno.serve(async (req) => {
       .order("message_time", { ascending: false })
       .limit(1000); // 1,000 is safe and enough for "recent" view
 
+    // Fetch cadastros and motoristas for metadata
+    debugTag = "fetch_cadastros";
+    const { data: cadastros } = await supabase.from("cadastros").select("*");
+    debugTag = "fetch_motoristas";
+    const { data: motoristas } = await supabase.from("motoristas").select("*");
+
     return new Response(JSON.stringify({
       success: true,
-      resumo: resumo || [], // New summary table
+      resumo: resumo || [],
       vehicles: vehicles || [],
+      cadastros: cadastros || [],
+      motoristas: motoristas || [],
       events: recentEvents || [],
       positions: positions || [],
       overrides: overrides || [],
