@@ -185,7 +185,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   // Handle errors from React Query
   useEffect(() => {
     if (queryError) {
-      setError("Falha na sincronização. Tentando reconectar...");
+      const msg = (queryError as any)?.context?.error || (queryError as any)?.message || "Erro desconhecido";
+      const tag = (queryError as any)?.context?.tag || "";
+      setError(`Falha na sincronização: ${msg} ${tag ? `[Tag: ${tag}]` : ""}`);
     }
   }, [queryError]);
 

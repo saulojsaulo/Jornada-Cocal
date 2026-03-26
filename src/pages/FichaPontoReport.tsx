@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { MacroNumber } from "@/types/journey";
 import { buildJourneys, calculateJourney } from "@/lib/journeyEngine";
 import { Printer, Download } from "lucide-react";
@@ -131,23 +132,21 @@ export default function FichaPontoReport() {
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => { loadReport(); }, []);
-
+  const loadReport = async () => {
     setLoading(true);
     try {
       const { start, end, vehicle_codes, senha } = Object.fromEntries(searchParams.entries());
       const today = fmt(new Date());
-      const clippedEnd = end > today ? today : end;
+      const clippedEnd = (end && end > today) ? today : (end || today);
+
+      const startISO = new Date(startDate + "T00:00:00").toISOString();
+      const endISO = new Date(clippedEnd + "T23:59:59").toISOString();
 
       // Chama a dashboard-api consolidada
-      const { data: apiData, error: apiErr } = await supabase.functions.invoke("dashboard-api", {
-        method: "GET",
-        queryParams: {
-          driverSenha: senha || "",
-          start: new Date(startDate + "T00:00:00").toISOString(),
-          end: new Date(clippedEnd + "T23:59:59").toISOString(),
-          vehicle_codes: vehicle_codes || ""
-        }
-      });
+      const { data: apiData, error: apiErr } = await supabase.functions.invoke(
+        `dashboard-api?driverSenha=${senha || ""}&start=${startISO}&end=${endISO}&vehicle_codes=${vehicle_codes || ""}`, 
+        { method: "GET" }
+      );
 
       if (apiErr) {
         toast.error("Erro ao carregar dados do relatório pela API");

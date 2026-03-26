@@ -8,14 +8,10 @@ export function useDriverHistory(driverSenha?: string, start?: string, end?: str
     queryFn: async (): Promise<DashboardData> => {
       console.log(`[API] Buscando histórico do motorista (${driverSenha}) de ${start} a ${end}...`);
       
-      const { data, error } = await supabase.functions.invoke("dashboard-api", {
-        method: "GET",
-        queryParams: { 
-          driverSenha: driverSenha || "",
-          start: start || "",
-          end: end || ""
-        }
-      });
+      const { data, error } = await supabase.functions.invoke(
+        `dashboard-api?driverSenha=${driverSenha || ""}&start=${start || ""}&end=${end || ""}`, 
+        { method: "GET" }
+      );
 
       if (error) {
         console.error("[API] Erro ao buscar histórico:", error);

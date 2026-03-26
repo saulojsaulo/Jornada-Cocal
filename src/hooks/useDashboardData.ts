@@ -19,14 +19,15 @@ export function useDashboardData(daysWindow: number = 2) {
     queryFn: async (): Promise<DashboardData> => {
       console.log(`[API] Buscando dados consolidados do dashboard (${daysWindow} dias)...`);
       
-      const { data, error } = await supabase.functions.invoke("dashboard-api", {
-        method: "GET",
-        queryParams: { days: String(daysWindow) }
+      const { data, error } = await supabase.functions.invoke(`dashboard-api?days=${daysWindow}`, {
+        method: "GET"
       });
 
       if (error) {
         console.error("[API] Erro ao invocar dashboard-api:", error);
-        throw error;
+        // If the error has a context or response, try to extract the message
+        const responseError = (error as any)?.context || error;
+        throw responseError;
       }
 
       return data as DashboardData;

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Printer, Download } from "lucide-react";
 
 const COMPANY_NAME = "Cocal Transportes";
@@ -58,21 +59,19 @@ export default function AlteracoesManuaisReport() {
   useEffect(() => {
     loadData();
   }, [motoristaId, startDate, endDate]);
-
+  const loadData = async () => {
     setLoading(true);
     try {
       const vehicleCodes = searchParams.get("vehicle_codes") || "";
       const senha = searchParams.get("senha") || "";
 
-      const { data: apiData, error: apiErr } = await supabase.functions.invoke("dashboard-api", {
-        method: "GET",
-        queryParams: {
-          driverSenha: senha,
-          start: new Date(startDate + "T00:00:00").toISOString(),
-          end: new Date(endDate + "T23:59:59").toISOString(),
-          vehicle_codes: vehicleCodes
-        }
-      });
+      const startISO = new Date(startDate + "T00:00:00").toISOString();
+      const endISO = new Date(endDate + "T23:59:59").toISOString();
+
+      const { data: apiData, error: apiErr } = await supabase.functions.invoke(
+        `dashboard-api?driverSenha=${senha}&start=${startISO}&end=${endISO}&vehicle_codes=${vehicleCodes}`, 
+        { method: "GET" }
+      );
 
       if (apiErr) {
         toast.error("Erro ao carregar auditoria pela API");

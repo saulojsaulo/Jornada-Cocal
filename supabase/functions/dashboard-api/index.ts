@@ -20,9 +20,11 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    let debugTag = "init";
 
-    // Handle POST requests early to avoid unnecessary work
+    // Handle POST requests early
     if (req.method === "POST") {
+      debugTag = "post_request";
       const { action, payload } = await req.json();
       console.log(`[API] POST Action: ${action}`);
 
@@ -42,6 +44,7 @@ Deno.serve(async (req) => {
       throw new Error(`Action ${action} not supported`);
     }
 
+    debugTag = "parse_params";
     const url = new URL(req.url);
     const daysWindow = parseInt(url.searchParams.get("days") || "2");
     const startDateParam = url.searchParams.get("start");
@@ -51,18 +54,17 @@ Deno.serve(async (req) => {
     let start: Date;
     let end: Date = new Date();
 
-    if (startDateParam && startDateParam !== "null" && startDateParam !== "undefined") {
+    if (startDateParam && startDateParam !== "null" && startDateParam !== "undefined" && startDateParam !== "") {
       start = new Date(startDateParam);
     } else {
       start = new Date();
       start.setDate(start.getDate() - daysWindow);
     }
 
-    if (endDateParam && endDateParam !== "null" && endDateParam !== "undefined") {
+    if (endDateParam && endDateParam !== "null" && endDateParam !== "undefined" && endDateParam !== "") {
       end = new Date(endDateParam);
     }
 
-    // Safety check for invalid dates
     if (isNaN(start.getTime())) {
       start = new Date();
       start.setDate(start.getDate() - daysWindow);
@@ -71,9 +73,9 @@ Deno.serve(async (req) => {
       end = new Date();
     }
 
-    console.log(`Fetching data from ${start.toISOString()} to ${end.toISOString()} (Driver: ${driverSenha || 'All'})`);
+    console.log(`[${debugTag}] Fetching data from ${start.toISOString()} to ${end.toISOString()} (Driver: ${driverSenha || 'All'})`);
 
-    // Build event query
+    debugTag = "build_event_query";
     let eventQuery = supabase.from("autotrac_eventos")
       .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password, raw_data")
       .gte("message_time", start.toISOString())
@@ -81,18 +83,19 @@ Deno.serve(async (req) => {
       .order("message_time", { ascending: true })
       .limit(10000);
 
-    if (driverSenha) {
+    if (driverSenha && driverSenha.trim() !== "") {
+      // Use standard filter to be safer with special characters
       eventQuery = eventQuery.or(`driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%`);
     }
 
-    // Fetch data in parallel
+    debugTag = "main_parallel_fetch";
     const [
-      { data: vehicles },
-      { data: cadastros },
-      { data: motoristas },
-      { data: rawEvents },
-      { data: positions },
-      { data: overrides }
+      { data: vehicles, error: vErr },
+      { data: cadastros, error: cErr },
+      { data: motoristas, error: mErr },
+      { data: rawEvents, error: eErr },
+      { data: positions, error: pErr },
+      { data: overrides, error: oErr }
     ] = await Promise.all([
       supabase.from("autotrac_vehicles").select("id, vehicle_code, name, plate, account_number").order("name"),
       supabase.from("cadastros").select("id, veiculo_id, motorista_nome, gestor_nome, numero_frota").eq("ativo", true),
@@ -107,7 +110,14 @@ Deno.serve(async (req) => {
         .limit(2000)
     ]);
 
-    // Map driver names to events on the server side
+    if (vErr) throw new Error(`Vehicles fetch error: ${vErr.message}`);
+    if (cErr) throw new Error(`Cadastros fetch error: ${cErr.message}`);
+    if (mErr) throw new Error(`Motoristas fetch error: ${mErr.message}`);
+    if (eErr) throw new Error(`Events fetch error: ${eErr.message}`);
+    if (pErr) throw new Error(`Positions fetch error: ${pErr.message}`);
+    if (oErr) throw new Error(`Overrides fetch error: ${oErr.message}`);
+
+    debugTag = "process_driver_map";
     const driverBySenha = new Map<string, { id: string; nome: string }>();
     if (motoristas) {
       for (const m of motoristas) {
@@ -115,6 +125,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    debugTag = "map_events";
     const events = (rawEvents || []).map(e => {
       const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
       return {
@@ -124,7 +135,7 @@ Deno.serve(async (req) => {
       };
     });
 
-    // Fetch telemetry for the retrieved vehicles
+    debugTag = "telemetry_fetch";
     let telemetry: any[] = [];
     const codes = (vehicles || []).map((v: any) => v.vehicle_code);
     
@@ -132,15 +143,18 @@ Deno.serve(async (req) => {
       const startStr = start.toISOString().split("T")[0];
       const endStr = end.toISOString().split("T")[0];
       
-      const { data: telData } = await supabase
+      const { data: telData, error: tErr } = await supabase
         .from("telemetria_sync")
         .select("*")
         .in("vehicle_code", codes)
         .gte("data_jornada", startStr)
         .lte("data_jornada", endStr);
+      
+      if (tErr) throw new Error(`Telemetry fetch error: ${tErr.message}`);
       telemetry = telData || [];
     }
 
+    debugTag = "finalize_response";
     const result = {
       vehicles: vehicles || [],
       cadastros: cadastros || [],
@@ -156,9 +170,13 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: unknown) {
-    console.error("Dashboard API error:", error);
+    console.error(`Dashboard API error [Tag: ${debugTag}]:`, error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
+    return new Response(JSON.stringify({ 
+      error: message, 
+      tag: debugTag,
+      timestamp: new Date().toISOString()
+    }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

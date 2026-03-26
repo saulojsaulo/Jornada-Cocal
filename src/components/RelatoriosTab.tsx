@@ -5,8 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import RankingTab from "@/components/RankingTab";
 import { toast } from "sonner";
+import RankingTab from "@/components/RankingTab";
 import { useJourneyStore } from "@/context/JourneyContext";
 
 interface Motorista {
@@ -99,14 +99,13 @@ export default function RelatoriosTab() {
     if (vehicleCodes.length === 0 && motorista?.senha) {
       toast.info("Buscando vínculos de frota via API...");
       try {
-        const { data: discoverData, error: dErr } = await supabase.functions.invoke("dashboard-api", {
-          method: "GET",
-          queryParams: { 
-            driverSenha: motorista.senha,
-            start: new Date(start + "T00:00:00").toISOString(),
-            end: new Date(end + "T23:59:59").toISOString()
-          }
-        });
+        const startISO = new Date(start + "T00:00:00").toISOString();
+        const endISO = new Date(end + "T23:59:59").toISOString();
+        
+        const { data: discoverData, error: dErr } = await supabase.functions.invoke(
+          `dashboard-api?driverSenha=${motorista.senha}&start=${startISO}&end=${endISO}`, 
+          { method: "GET" }
+        );
 
         if (!dErr && discoverData?.events?.length) {
           const codeSet = new Set<string>();
