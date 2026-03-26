@@ -56,14 +56,10 @@ async function autotracFetch(path: string, apiKey: string, authHeader: string): 
   console.log(`Auth header: ${authHeader.substring(0, 20)}...`);
 
   const headers: Record<string, string> = {
-    "Ocp-Apim-Subscription-Key": apiKey,
-    Authorization: authHeader,
-    Accept: "application/json",
+    "Ocp-Apim-Subscription-Key": apiKey.trim(),
+    Authorization: authHeader.trim(),
   };
 
-  // Only add Content-Type for POST/PUT if needed, but not for GET
-  // resp = await fetch(url, { headers });
-  
   const resp = await fetch(url, { headers });
 
   if (!resp.ok) {
@@ -82,16 +78,16 @@ Deno.serve(async (req) => {
 
   try {
     let isQuick = false;
-    const AUTOTRAC_API_KEY = Deno.env.get("AUTOTRAC_API_KEY");
+    const AUTOTRAC_API_KEY = Deno.env.get("AUTOTRAC_API_KEY")?.trim();
     if (!AUTOTRAC_API_KEY) throw new Error("AUTOTRAC_API_KEY not configured");
 
-    const AUTOTRAC_USERNAME = Deno.env.get("AUTOTRAC_USERNAME");
+    const AUTOTRAC_USERNAME = Deno.env.get("AUTOTRAC_USERNAME")?.trim();
     if (!AUTOTRAC_USERNAME) throw new Error("AUTOTRAC_USERNAME not configured");
 
-    const AUTOTRAC_PASSWORD = Deno.env.get("AUTOTRAC_PASSWORD");
+    const AUTOTRAC_PASSWORD = Deno.env.get("AUTOTRAC_PASSWORD")?.trim();
     if (!AUTOTRAC_PASSWORD) throw new Error("AUTOTRAC_PASSWORD not configured");
 
-    const AUTOTRAC_ACCOUNT_NUMBER = Deno.env.get("AUTOTRAC_ACCOUNT_NUMBER");
+    const AUTOTRAC_ACCOUNT_NUMBER = Deno.env.get("AUTOTRAC_ACCOUNT_NUMBER")?.trim();
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
