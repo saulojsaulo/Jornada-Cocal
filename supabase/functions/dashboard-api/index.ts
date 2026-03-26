@@ -1,97 +1,79 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://www.jornadademotorista.com",
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
 
 Deno.serve(async (req) => {
-  // 1. Handle Preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // 2. Wrap EVERYTHING in Try/Catch to ensure CORS is ALWAYS returned
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Supabase credentials not configured");
-    }
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error("Missing Env");
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     let debugTag = "start";
 
-    // Handle POST (Mutations)
     if (req.method === "POST") {
-      debugTag = "post_action";
       const { action, payload } = await req.json();
-      console.log(`[API] POST Action: ${action}`);
-
       if (action === "upsert_override") {
-        const { data, error } = await supabase.from("macro_overrides").insert(payload).select().single();
+        const { data, error } = await supabase.from("macro_overrides").upsert(payload).select().single();
         if (error) throw error;
-        return new Response(JSON.stringify({ success: true, data }), { 
-          headers: { ...corsHeaders, "Content-Type": "application/json" } 
-        });
+        return new Response(JSON.stringify({ success: true, data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-
       if (action === "delete_override") {
         const { id } = payload;
         const { error } = await supabase.from("macro_overrides").delete().eq("id", id);
         if (error) throw error;
-        return new Response(JSON.stringify({ success: true }), { 
-          headers: { ...corsHeaders, "Content-Type": "application/json" } 
-        });
+        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      throw new Error(`Action ${action} not supported`);
+      return new Response(JSON.stringify({ error: "Action not supported" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Handle GET (Data Fetching)
-    debugTag = "parse_query_params";
+    // ROBUST DATE PARSING
     const url = new URL(req.url);
-    const daysWindow = parseInt(url.searchParams.get("days") || "2");
-    const startDateParam = url.searchParams.get("start");
-    const endDateParam = url.searchParams.get("end");
-    const driverSenha = url.searchParams.get("driverSenha");
-    
-    let start: Date;
-    let end: Date = new Date();
+    const daysRaw = url.searchParams.get("days");
+    const daysWindow = daysRaw ? parseInt(daysRaw) : 2;
+    const finalDays = isNaN(daysWindow) ? 2 : daysWindow;
 
-    if (startDateParam && startDateParam !== "null" && startDateParam !== "undefined" && startDateParam !== "") {
-      start = new Date(startDateParam);
+    const startParam = url.searchParams.get("start");
+    let start: Date;
+    if (startParam && startParam !== "null" && startParam !== "undefined") {
+      start = new Date(startParam);
     } else {
       start = new Date();
-      start.setDate(start.getDate() - daysWindow);
+      start.setDate(start.getDate() - finalDays);
+    }
+    if (isNaN(start.getTime())) {
+       start = new Date();
+       start.setDate(start.getDate() - finalDays);
     }
 
-    if (endDateParam && endDateParam !== "null" && endDateParam !== "undefined" && endDateParam !== "") {
-      end = new Date(endDateParam);
-    }
-    
+    const endParam = url.searchParams.get("end");
+    let end = (endParam && endParam !== "null") ? new Date(endParam) : new Date();
+    if (isNaN(end.getTime())) end = new Date();
+
     const startIso = start.toISOString();
     const endIso = end.toISOString();
+    const driverSenha = url.searchParams.get("driverSenha");
 
-    console.log(`[${debugTag}] Query range: ${startIso} to ${endIso}`);
+    console.log(`[GET] ${startIso} to ${endIso}`);
 
-    // Fetch data sequentially to avoid heavy DB load causing timeouts
+    // Sequential Fetch
     debugTag = "fetch_vehicles";
-    const { data: vehicles, error: vErr } = await supabase
-      .from("autotrac_vehicles").select("id, vehicle_code, name, plate, account_number").order("name");
-    if (vErr) throw vErr;
-
+    const { data: vehicles } = await supabase.from("autotrac_vehicles").select("id, vehicle_code, name, plate, account_number").order("name");
+    
     debugTag = "fetch_cadastros";
-    const { data: cadastros, error: cErr } = await supabase
-      .from("cadastros").select("id, veiculo_id, motorista_nome, gestor_nome, numero_frota").eq("ativo", true);
-    if (cErr) throw cErr;
-
+    const { data: cadastros } = await supabase.from("cadastros").select("id, veiculo_id, motorista_nome, gestor_nome, numero_frota").eq("ativo", true);
+    
     debugTag = "fetch_motoristas";
-    const { data: motoristas, error: mErr } = await supabase
-      .from("motoristas").select("id, nome, senha");
-    if (mErr) throw mErr;
+    const { data: motoristas } = await supabase.from("motoristas").select("id, nome, senha");
 
     debugTag = "fetch_events";
     let eventQuery = supabase.from("autotrac_eventos")
@@ -99,82 +81,50 @@ Deno.serve(async (req) => {
       .gte("message_time", startIso)
       .lte("message_time", endIso)
       .order("message_time", { ascending: true })
-      .limit(3000); // Further reduced limit for stability
+      .limit(2000);
 
-    if (driverSenha && driverSenha.trim() !== "") {
+    if (driverSenha) {
       eventQuery = eventQuery.or(`driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%`);
     }
-    const { data: rawEvents, error: eErr } = await eventQuery;
-    if (eErr) throw eErr;
+    const { data: rawEvents } = await eventQuery;
 
     debugTag = "fetch_positions";
-    const { data: positions, error: pErr } = await supabase
-      .from("autotrac_posicoes").select("vehicle_code, landmark, latitude, longitude, position_time");
-    if (pErr) throw pErr;
+    const { data: positions } = await supabase.from("autotrac_posicoes").select("vehicle_code, landmark, latitude, longitude, position_time");
 
     debugTag = "fetch_overrides";
-    const { data: overrides, error: oErr } = await supabase
-      .from("macro_overrides")
-      .select("id, vehicle_code, original_event_id, action, macro_number, event_time, reason")
-      .gte("event_time", startIso)
-      .lte("event_time", endIso)
-      .order("created_at", { ascending: false });
-    if (oErr) throw oErr;
+    const { data: overrides } = await supabase.from("macro_overrides").select("*").gte("event_time", startIso).lte("event_time", endIso);
 
-    debugTag = "process_data";
-    // Driver mapping
-    const driverBySenha = new Map<string, { id: string; nome: string }>();
-    if (motoristas) {
-      motoristas.forEach(m => {
-        if (m.senha) driverBySenha.set(m.senha, { id: m.id, nome: m.nome });
-      });
-    }
-
-    const events = (rawEvents || []).map(e => {
-      const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
-      return { ...e, driver_id: driver?.id || null, driver_name: driver?.nome || null };
-    });
-
-    // Telemetry fetch (if vehicles exist)
     debugTag = "fetch_telemetry";
     let telemetry: any[] = [];
     const vehicleCodes = (vehicles || []).map(v => v.vehicle_code);
     if (vehicleCodes.length > 0) {
-      const { data: telData, error: tErr } = await supabase
+      const { data: telData } = await supabase
         .from("telemetria_sync")
         .select("*")
         .in("vehicle_code", vehicleCodes)
         .gte("data_jornada", startIso.split("T")[0])
         .lte("data_jornada", endIso.split("T")[0]);
-      if (tErr) throw tErr;
       telemetry = telData || [];
     }
 
-    debugTag = "success_response";
     return new Response(JSON.stringify({
       success: true,
       vehicles: vehicles || [],
       cadastros: cadastros || [],
       motoristas: motoristas || [],
-      events: events || [],
+      events: rawEvents || [],
       positions: positions || [],
       overrides: overrides || [],
       telemetry: telemetry,
       syncedAt: new Date().toISOString()
     }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
-    console.error(`[API ERROR] Tag: ${debugTag}`, err);
-    return new Response(JSON.stringify({
-      success: false,
-      error: err.message || "Internal Server Error",
-      tag: debugTag,
-      timestamp: new Date().toISOString()
-    }), {
-      status: 200, // Important: 200 to bypass CORS swallow on 500
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    return new Response(JSON.stringify({ success: false, error: err.message, tag: debugTag }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
