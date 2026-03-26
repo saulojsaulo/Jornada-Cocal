@@ -750,24 +750,30 @@ function MacroList({
     originalMacroNumber?: number;
     originalEventTime?: string;
   }) => {
-    const { data: userData } = await supabase.auth.getUser();
+    toast.info("Salvando alteração via API...");
+    
+    // Get current user for metadata (though API should handle this, we keep it for consistency)
+    const { data: { user } } = await supabase.auth.getUser();
 
-    const { error } = await (supabase as any)
-      .from("macro_overrides")
-      .insert({
-        vehicle_code: Number(vehicleCode),
-        original_event_id: data.originalEventId || null,
-        action: data.action,
-        macro_number: data.macroNumber || null,
-        event_time: data.eventTime || null,
-        original_macro_number: data.originalMacroNumber || null,
-        original_event_time: data.originalEventTime || null,
-        reason: data.reason,
-        created_by: userData?.user?.id || null,
-      });
+    const payload = {
+      vehicle_code: Number(vehicleCode),
+      original_event_id: data.originalEventId || null,
+      action: data.action,
+      macro_number: data.macroNumber || null,
+      event_time: data.eventTime || null,
+      original_macro_number: data.originalMacroNumber || null,
+      original_event_time: data.originalEventTime || null,
+      reason: data.reason,
+      created_by: user?.id || null,
+    };
+
+    const { error } = await supabase.functions.invoke("dashboard-api", {
+      method: "POST",
+      body: { action: "upsert_override", payload }
+    });
 
     if (error) {
-      toast.error("Erro ao salvar alteração: " + error.message);
+      toast.error("Erro ao salvar alteração via API: " + (error.message || error));
       throw error;
     }
 

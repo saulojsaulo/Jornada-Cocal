@@ -45,41 +45,28 @@ export default function AusenciaMarcacoesReport() {
     loadData();
   }, [startDate, endDate]);
 
-  const loadData = async () => {
     setLoading(true);
     try {
-      const vehicleCodes = vehicleCodesStr.split(",").filter(Boolean).map(Number);
-      if (vehicleCodes.length === 0 && !driverSenha) {
-        setRows([]);
-        return;
+      const senha = searchParams.get("senha") || "";
+      const vehicleCodes = searchParams.get("vehicle_codes") || "";
+
+      const { data: apiData, error: apiErr } = await supabase.functions.invoke("dashboard-api", {
+        method: "GET",
+        queryParams: {
+          driverSenha: senha,
+          start: new Date(startDate + "T00:00:00").toISOString(),
+          end: new Date(endDate + "T23:59:59").toISOString(),
+          vehicle_codes: vehicleCodes
+        }
+      });
+
+      if (apiErr) {
+        toast.error("Erro ao carregar dados de ausências pela API");
+        throw apiErr;
       }
 
-      // Fetch events
-      let allEvents: any[] = [];
-      const startISO = new Date(startDate + "T00:00:00").toISOString();
-      const endISO = new Date(endDate + "T23:59:59").toISOString();
-
-      let query = supabase
-        .from("autotrac_eventos")
-        .select("*")
-        .gte("message_time", startISO)
-        .lte("message_time", endISO)
-        .order("message_time", { ascending: true });
-
-      if (vehicleCodes.length > 0) {
-        query = query.in("vehicle_code", vehicleCodes);
-      }
-
-      const { data: eventsData } = await query;
-      allEvents = eventsData || [];
-
-      // Filter by driver password if applicable
-      if (driverSenha) {
-        allEvents = allEvents.filter((e: any) => {
-          const msgText = e.raw_data?.MessageText ? String(e.raw_data.MessageText) : "";
-          return msgText.includes(`_${driverSenha}`);
-        });
-      }
+      const allEvents = apiData.events || [];
+      const overridesData = apiData.overrides || [];
 
       // Map to Engine format
       const mapped = allEvents.map((e: any) => ({
@@ -92,18 +79,13 @@ export default function AusenciaMarcacoesReport() {
 
       const journeys = buildJourneys(mapped);
 
-      // Fetch marks (folga, atestado, etc) to exclude
-      const { data: marksData } = await (supabase as any)
-        .from("macro_overrides")
-        .select("*")
-        .in("action", ["folga", "falta", "atestado", "afastamento"])
-        .gte("event_time", startISO)
-        .lte("event_time", endISO);
-
       const dayMarks = new Set<string>();
-      if (marksData) {
-        marksData.forEach((m: any) => {
-          dayMarks.add(toDateKey(new Date(m.event_time)));
+      if (overridesData) {
+        const dayMarkActions = new Set(["folga", "falta", "atestado", "afastamento"]);
+        overridesData.forEach((m: any) => {
+          if (dayMarkActions.has(m.action)) {
+            dayMarks.add(toDateKey(new Date(m.event_time)));
+          }
         });
       }
 

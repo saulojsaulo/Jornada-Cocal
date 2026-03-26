@@ -132,86 +132,40 @@ export default function FichaPontoReport() {
 
   useEffect(() => { loadReport(); }, []);
 
-  const loadReport = async () => {
     setLoading(true);
     try {
-      const vehicleCodes = vehicleCodesStr.split(",").filter(Boolean);
+      const { start, end, vehicle_codes, senha } = Object.fromEntries(searchParams.entries());
       const today = fmt(new Date());
+      const clippedEnd = end > today ? today : end;
 
-      // Clip end date to today
-      const clippedEnd = endDate > today ? today : endDate;
-
-      // Start from the first day of the month of startDate
-      const startD = new Date(startDate + "T12:00:00");
-      const monthStart = fmt(new Date(startD.getFullYear(), startD.getMonth(), 1));
-
-      const startISO = new Date(monthStart + "T00:00:00").toISOString();
-      const endExtended = new Date(clippedEnd + "T00:00:00");
-      endExtended.setDate(endExtended.getDate() + 2);
-      const endISO = endExtended.toISOString();
-
-      // Build OR filter
-      // Step 1: if we have no vehicle_codes from URL but have a senha, discover
-      // vehicle_codes from autotrac_eventos where raw_data MessageText contains _senha
-      let resolvedCodes = [...vehicleCodes];
-      if (resolvedCodes.length === 0 && driverSenha) {
-        const { data: discoverData } = await (supabase as any)
-          .from("autotrac_eventos")
-          .select("vehicle_code")
-          .gte("message_time", new Date(monthStart + "T00:00:00").toISOString())
-          .lte("message_time", endISO)
-          .ilike("raw_data->>MessageText", `%_${driverSenha}%`);
-        if (discoverData?.length) {
-          const codeSet = new Set<string>();
-          for (const row of discoverData) codeSet.add(String(row.vehicle_code));
-          resolvedCodes = Array.from(codeSet);
+      // Chama a dashboard-api consolidada
+      const { data: apiData, error: apiErr } = await supabase.functions.invoke("dashboard-api", {
+        method: "GET",
+        queryParams: {
+          driverSenha: senha || "",
+          start: new Date(startDate + "T00:00:00").toISOString(),
+          end: new Date(clippedEnd + "T23:59:59").toISOString(),
+          vehicle_codes: vehicle_codes || ""
         }
+      });
+
+      if (apiErr) {
+        toast.error("Erro ao carregar dados do relatório pela API");
+        throw apiErr;
       }
 
-      if (resolvedCodes.length === 0) { setRows([]); setLoading(false); return; }
+      const allEvents = apiData.events || [];
+      const overridesData = apiData.overrides || [];
+      const telData = apiData.telemetry || [];
+      const resolvedCodes = apiData.vehicles.map((v: any) => String(v.vehicle_code));
 
-      // Step 2: fetch all events for those vehicle_codes
-      // The query will now use the resolvedCodes for filtering
-      let allEvents: any[] = [];
-      let from = 0;
-      const pageSize = 1000;
-      while (true) {
-        const { data: page, error } = await (supabase as any)
-          .from("autotrac_eventos")
-          .select("*")
-          .in("vehicle_code", resolvedCodes.map(Number))
-          .gte("message_time", startISO)
-          .lte("message_time", endISO)
-          .order("message_time", { ascending: true })
-          .range(from, from + pageSize - 1);
-        if (error) throw error;
-        if (!page || page.length === 0) break;
-        allEvents = allEvents.concat(page);
-        if (page.length < pageSize) break;
-        from += pageSize;
+      if (allEvents.length === 0 && overridesData.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
       }
 
-      // If driver has a senha, filter events to only those belonging to this driver
-      // (in case the vehicle was used by multiple drivers)
-      if (driverSenha) {
-        allEvents = allEvents.filter((e: any) => {
-          const msgText = e.raw_data?.MessageText ? String(e.raw_data.MessageText) : "";
-          const match = msgText.match(/^_(\w+)/);
-          const extracted = match ? match[1] : null;
-          if (extracted && extracted !== driverSenha) return false;
-          return true;
-        });
-      }
-
-      // Overrides
-      const { data: overridesData } = await (supabase as any)
-        .from("macro_overrides")
-        .select("*")
-        .in("vehicle_code", resolvedCodes.length > 0 ? resolvedCodes.map(Number) : [0]);
-
-      // Determine which vehicle codes were used per day (for telemetry)
       const vehicleCodesUsedByDay = new Map<string, Set<number>>();
-
       const VALID_MACROS = new Set([1, 2, 3, 4, 5, 6, 9, 10]);
 
       let mapped = allEvents
@@ -236,9 +190,9 @@ export default function FichaPontoReport() {
           };
         });
 
-      // Apply overrides
+      // Apply overrides from API data
       const dayMarksMap = new Map<string, string>();
-      if (overridesData?.length) {
+      if (overridesData.length) {
         const deletedIds = new Set<string>();
         const editedIds = new Map<string, any>();
         const dayMarkActions = new Set(["folga", "falta", "atestado", "afastamento"]);
@@ -264,40 +218,17 @@ export default function FichaPontoReport() {
       }
 
       const journeys = buildJourneys(mapped);
-
-      // Collect all distinct dates in range that have events or day marks
-      const datesWithActivity = new Set<string>();
-      for (const j of journeys) datesWithActivity.add(j.date);
-      for (const [key] of dayMarksMap) {
-        const parts = key.split("_");
-        const dateKey = parts[parts.length - 1];
-        datesWithActivity.add(dateKey);
-      }
-
-      // Build sorted list of all days from monthStart..clippedEnd
       const allDays: string[] = [];
-      const cur = new Date(monthStart + "T12:00:00");
-      const endD = new Date(clippedEnd + "T12:00:00");
-      while (cur <= endD) { allDays.push(toDateKey(cur)); cur.setDate(cur.getDate() + 1); }
+      const curDD = new Date(startDate + "T12:00:00");
+      const endDD = new Date(clippedEnd + "T12:00:00");
+      while (curDD <= endDD) { allDays.push(toDateKey(curDD)); curDD.setDate(curDD.getDate() + 1); }
 
-      // Fetch telemetry from telemetria_sync for vehicle codes used
-      const allVehicleCodesUsed = new Set<number>();
-      for (const [, codes] of vehicleCodesUsedByDay) for (const c of codes) allVehicleCodesUsed.add(c);
-
-      const telByVehicleDay = new Map<string, TelPonto[]>(); // key: `${vc}_${date}`
-      if (allVehicleCodesUsed.size > 0) {
-        const { data: telData } = await supabase
-          .from("telemetria_sync")
-          .select("vehicle_code, data_jornada, pontos")
-          .in("vehicle_code", Array.from(allVehicleCodesUsed))
-          .gte("data_jornada", monthStart)
-          .lte("data_jornada", clippedEnd);
-        if (telData) {
-          for (const row of telData) {
-            const key = `${row.vehicle_code}_${row.data_jornada}`;
-            const pontos = Array.isArray(row.pontos) ? row.pontos as TelPonto[] : [];
-            telByVehicleDay.set(key, pontos);
-          }
+      const telByVehicleDay = new Map<string, TelPonto[]>(); 
+      if (telData.length > 0) {
+        for (const row of telData) {
+          const key = `${row.vehicle_code}_${row.data_jornada}`;
+          const pontos = Array.isArray(row.pontos) ? row.pontos as TelPonto[] : [];
+          telByVehicleDay.set(key, pontos);
         }
       }
 

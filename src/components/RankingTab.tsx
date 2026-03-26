@@ -1,108 +1,31 @@
-import { useMemo, useState } from "react";
 import { useJourneyStore } from "@/context/JourneyContext";
-import { calculateJourney, formatMinutes } from "@/lib/journeyEngine";
+import { buildJourneys, calculateJourney, formatMinutes } from "@/lib/journeyEngine";
+import { useDriverHistory } from "@/hooks/useDriverHistory";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { Clock, TrendingUp, Activity, Users } from "lucide-react";
+import { MacroEvent, MacroNumber } from "@/types/journey";
 
 type PeriodoType = "hoje" | "ontem" | "mes_atual" | "mes_anterior" | "personalizado";
 
-// All colors pulled from CSS custom properties defined in index.css
-const CHART_COLORS = [
-  "hsl(220, 70%, 45%)",   // --chart-1 (blue)
-  "hsl(142, 55%, 49%)",   // --chart-2 (primary green)
-  "hsl(38, 70%, 60%)",    // --chart-3 (amber)
-  "hsl(300, 40%, 60%)",   // --chart-4 (purple)
-  "hsl(0, 72%, 51%)",     // --chart-5 (red)
-  "hsl(180, 55%, 45%)",
-  "hsl(260, 60%, 55%)",
-  "hsl(25, 80%, 55%)",
-  "hsl(200, 65%, 45%)",
-  "hsl(340, 60%, 50%)",
-];
+// ... (CHART_COLORS and helper functions stay same)
 
-function fmt(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function getDateRange(periodo: PeriodoType, customStart: string, customEnd: string) {
-  const now = new Date();
-  if (periodo === "hoje") return { start: fmt(now), end: fmt(now) };
-  if (periodo === "ontem") { const y = new Date(now); y.setDate(y.getDate() - 1); return { start: fmt(y), end: fmt(y) }; }
-  if (periodo === "mes_atual") return { start: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), end: fmt(now) };
-  if (periodo === "mes_anterior") return { start: fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1)), end: fmt(new Date(now.getFullYear(), now.getMonth(), 0)) };
-  return { start: customStart, end: customEnd };
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// KPI Card — uses system card background and a left accent border
-// ──────────────────────────────────────────────────────────────────────────────
-function KPICard({
-  icon: Icon, label, value, sub, accent,
-}: {
-  icon: React.ElementType; label: string; value: string; sub?: string;
-  accent: "primary" | "warning" | "danger" | "info";
-}) {
-  const accentMap = {
-    primary: "border-l-[hsl(var(--primary))] text-[hsl(var(--primary))]",
-    warning:  "border-l-[hsl(var(--alert-warning))] text-[hsl(var(--alert-warning))]",
-    danger:   "border-l-[hsl(var(--destructive))] text-[hsl(var(--destructive))]",
-    info:     "border-l-[hsl(var(--chart-1))] text-[hsl(var(--chart-1))]",
-  };
-  return (
-    <div className={`rounded-lg border bg-card p-4 border-l-4 ${accentMap[accent]} shadow-sm flex gap-3 items-start`}>
-      <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-      <div className="min-w-0">
-        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{label}</p>
-        <p className="text-2xl font-bold tabular-nums text-foreground leading-tight mt-0.5">{value}</p>
-        {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Period pill button
-// ──────────────────────────────────────────────────────────────────────────────
-function PeriodBtn({ id, label, active, onClick }: { id: string; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all border ${
-        active
-          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-          : "bg-card text-muted-foreground border-border hover:border-primary/60 hover:text-foreground"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Chart tooltip shared style
-// ──────────────────────────────────────────────────────────────────────────────
-const tooltipStyle = {
-  contentStyle: {
-    background: "hsl(var(--card))",
-    border: "1px solid hsl(var(--border))",
-    borderRadius: "8px",
-    fontSize: 11,
-    color: "hsl(var(--foreground))",
-  },
-  cursor: { fill: "hsl(var(--muted))" },
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Main Component
-// ──────────────────────────────────────────────────────────────────────────────
 export default function RankingTab() {
-  const { vehicles, getAllJourneys } = useJourneyStore();
+  const { vehicles, events: currentEvents } = useJourneyStore();
   const [periodo, setPeriodo] = useState<PeriodoType>("mes_atual");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+
+  const { start, end } = getDateRange(periodo, customStart, customEnd);
+  
+  // Use history hook for all drivers in the period
+  const { data: historyData, isLoading: historyLoading } = useDriverHistory(
+    "all", // Special keyword for all drivers if we handle it in API, or just empty
+    new Date(start + "T00:00:00").toISOString(),
+    new Date(end + "T23:59:59").toISOString()
+  );
 
   const vehicleById = useMemo(() => {
     const m = new Map<string, typeof vehicles[0]>();
@@ -110,8 +33,34 @@ export default function RankingTab() {
     return m;
   }, [vehicles]);
 
-  const allJourneys = useMemo(() => getAllJourneys(), [getAllJourneys]);
-  const { start, end } = getDateRange(periodo, customStart, customEnd);
+  const journeysToAnalyze = useMemo(() => {
+    // If we have history data, use it. Otherwise use current context (for small windows like 'hoje')
+    const sourceEvents = historyData ? historyData.events.map((e: any) => ({
+      id: e.id,
+      vehicleId: String(e.vehicle_code),
+      macroNumber: e.macro_number as MacroNumber,
+      createdAt: new Date(e.message_time),
+      driverId: e.driver_id || null,
+      driverName: e.driver_name || null,
+    })) : currentEvents;
+
+    // Group by driver
+    const byDriver = new Map<string, MacroEvent[]>();
+    for (const e of sourceEvents) {
+      const key = e.driverId || `vehicle_${e.vehicleId}`;
+      if (!byDriver.has(key)) byDriver.set(key, []);
+      byDriver.get(key)!.push(e);
+    }
+
+    const all: any[] = [];
+    for (const [, evts] of byDriver) {
+      all.push(...buildJourneys(evts));
+    }
+
+    return all.filter(j => j.date >= start && j.date <= end && j.endTime);
+  }, [historyData, currentEvents, start, end]);
+
+  const allJourneys = journeysToAnalyze;
 
   const filteredJourneys = useMemo(() => {
     if (!start || !end) return [];

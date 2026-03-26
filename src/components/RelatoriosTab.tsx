@@ -95,28 +95,28 @@ export default function RelatoriosTab() {
       vehicleCodes = driverCadastros.map(c => resolveVehicleCode(c)).filter(Boolean) as string[];
     }
 
-    // If no vehicle codes resolved but driver has senha: discover codes from autotrac_eventos
+    // If no vehicle codes resolved but driver has senha: discover codes from autotrac_eventos via and API call
     if (vehicleCodes.length === 0 && motorista?.senha) {
-      toast.info("Buscando veículos associados ao motorista...");
+      toast.info("Buscando vínculos de frota via API...");
       try {
-        // Same OR filter logic used in MovimentoCondutorTab
-        const orQuery = `raw_data->>MessageText.ilike.%_${motorista.senha}%`;
-        const startISO = new Date(start + "T00:00:00").toISOString();
-        const endISO = new Date(end + "T23:59:59").toISOString();
+        const { data: discoverData, error: dErr } = await supabase.functions.invoke("dashboard-api", {
+          method: "GET",
+          queryParams: { 
+            driverSenha: motorista.senha,
+            start: new Date(start + "T00:00:00").toISOString(),
+            end: new Date(end + "T23:59:59").toISOString()
+          }
+        });
 
-        const { data: discoverData, error } = await (supabase as any)
-          .from("autotrac_eventos")
-          .select("vehicle_code")
-          .gte("message_time", startISO)
-          .lte("message_time", endISO)
-          .or(orQuery);
-
-        if (!error && discoverData?.length) {
+        if (!dErr && discoverData?.events?.length) {
           const codeSet = new Set<string>();
-          for (const row of discoverData) codeSet.add(String(row.vehicle_code));
+          for (const ev of discoverData.events) codeSet.add(String(ev.vehicle_code));
           vehicleCodes = Array.from(codeSet);
+          console.log(`[API] Veículos descobertos para o motorista:`, vehicleCodes);
         }
-      } catch (_) { /* ignore, proceed with empty codes */ }
+      } catch (err) {
+        console.error("Erro ao descobrir veículos:", err);
+      }
     }
 
     if (vehicleCodes.length === 0 && !motorista?.senha) {

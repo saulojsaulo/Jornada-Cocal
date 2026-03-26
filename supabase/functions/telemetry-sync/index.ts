@@ -209,11 +209,11 @@ Deno.serve(async (req) => {
     let synced = 0;
     let errors = 0;
     const BATCH_SIZE = 10;
-
     for (let i = 0; i < vehicleCodes.length; i += BATCH_SIZE) {
       const batch = vehicleCodes.slice(i, i + BATCH_SIZE);
+      const rowsInBatch: any[] = [];
 
-      const results = await Promise.allSettled(
+      await Promise.all(
         batch.map(async (vCode) => {
           try {
             const positions = await fetchAllPositions(
@@ -227,19 +227,13 @@ Deno.serve(async (req) => {
 
             if (positions.length === 0) return;
 
-            // Build pontos array — extract speed from Landmark when Speed is 0
             const pontos = positions
               .map((p) => {
                 let speed = p.Speed ?? 0;
-                // Autotrac often returns Speed=0 but embeds real speed in Landmark text
-                // e.g. "1.81 Km ONO de ..., 33.00 Km/h"
                 if (speed === 0 && p.Landmark) {
                   const match = p.Landmark.match(/([\d.]+)\s*Km\/h/i);
-                  if (match) {
-                    speed = parseFloat(match[1]) || 0;
-                  }
+                  if (match) speed = parseFloat(match[1]) || 0;
                 }
-                // If speed > 0, ignition is necessarily on regardless of raw value
                 const ignition = speed > 0 ? 1 : (p.Ignition ?? 0);
                 return {
                   time: p.PositionTime,
@@ -252,7 +246,6 @@ Deno.serve(async (req) => {
               })
               .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-            // Calculate total distance
             let distancia = 0;
             for (let j = 1; j < pontos.length; j++) {
               const prev = pontos[j - 1];
@@ -262,11 +255,10 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Find veiculo_id from cadastro
             const vehicleName = vehicleNameMap.get(vCode) || "";
             const veiculoId = cadastroMap.get(vehicleName) || null;
 
-            const row = {
+            rowsInBatch.push({
               vehicle_code: vCode,
               veiculo_id: veiculoId,
               data_jornada: dateStr,
@@ -275,24 +267,26 @@ Deno.serve(async (req) => {
               total_raw: pontos.length,
               synced_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-            };
-
-            const { error: upsertErr } = await supabase
-              .from("telemetria_sync")
-              .upsert(row, { onConflict: "vehicle_code,data_jornada" });
-
-            if (upsertErr) {
-              console.error(`Upsert error for vehicle ${vCode}:`, upsertErr.message);
-              errors++;
-            } else {
-              synced++;
-            }
+            });
           } catch (err) {
             console.error(`Error processing vehicle ${vCode}:`, err);
             errors++;
           }
         })
       );
+
+      if (rowsInBatch.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from("telemetria_sync")
+          .upsert(rowsInBatch, { onConflict: "vehicle_code,data_jornada" });
+
+        if (upsertErr) {
+          console.error("Error batch upserting telemetry:", upsertErr.message);
+          errors += rowsInBatch.length;
+        } else {
+          synced += rowsInBatch.length;
+        }
+      }
     }
 
     const result = {

@@ -59,31 +59,27 @@ export default function AlteracoesManuaisReport() {
     loadData();
   }, [motoristaId, startDate, endDate]);
 
-  const loadData = async () => {
     setLoading(true);
     try {
-      // Fetch overrides for this motorista within period
-      // We join implicitly by vehicle_code if needed, but macro_overrides has been associated with motoristas
-      // if we have the motorista_id or common vehicle usage.
-      // For now, we'll fetch all overrides in the period and filter by motorista if the table has it,
-      // or by the vehicles that the motorista used.
-      
-      const vehicleCodes = (searchParams.get("vehicle_codes") || "").split(",").filter(Boolean).map(Number);
+      const vehicleCodes = searchParams.get("vehicle_codes") || "";
+      const senha = searchParams.get("senha") || "";
 
-      let query = supabase
-        .from("macro_overrides")
-        .select("*")
-        .gte("event_time", `${startDate}T00:00:00`)
-        .lte("event_time", `${endDate}T23:59:59`)
-        .order("event_time", { ascending: true });
+      const { data: apiData, error: apiErr } = await supabase.functions.invoke("dashboard-api", {
+        method: "GET",
+        queryParams: {
+          driverSenha: senha,
+          start: new Date(startDate + "T00:00:00").toISOString(),
+          end: new Date(endDate + "T23:59:59").toISOString(),
+          vehicle_codes: vehicleCodes
+        }
+      });
 
-      if (vehicleCodes.length > 0) {
-        query = query.in("vehicle_code", vehicleCodes);
+      if (apiErr) {
+        toast.error("Erro ao carregar auditoria pela API");
+        throw apiErr;
       }
 
-      const { data: overrides, error } = await query;
-      if (error) throw error;
-      setData(overrides || []);
+      setData(apiData.overrides || []);
     } catch (err) {
       console.error("Erro ao carregar auditoria:", err);
     } finally {

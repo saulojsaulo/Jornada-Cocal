@@ -14,6 +14,7 @@ import StatusBadge from "./StatusBadge";
 import TimelineBar from "./TimelineBar";
 import TelemetryBar from "./TelemetryBar";
 import { useJourneyStore } from "@/context/JourneyContext";
+import { useDriverHistory } from "@/hooks/useDriverHistory";
 
 interface Motorista {
   id: string;
@@ -56,46 +57,13 @@ interface DayData {
 }
 
 export default function MovimentoCondutorTab() {
-  const { refreshData } = useJourneyStore();
-  const [motoristas, setMotoristas] = useState<Motorista[]>([]);
-  const [cadastros, setCadastros] = useState<Cadastro[]>([]);
-  const [searchText, setSearchText] = useState("");
-  const [searchFrota, setSearchFrota] = useState("");
-  const [selectedMotorista, setSelectedMotorista] = useState<Motorista | null>(null);
-  const [periodo, setPeriodo] = useState<PeriodoType>("mes_atual");
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const [dayDataList, setDayDataList] = useState<DayData[]>([]);
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
-
-  const [macroDialogOpen, setMacroDialogOpen] = useState(false);
-  const [macroDialogMode, setMacroDialogMode] = useState<"insert" | "edit" | "delete">("insert");
-  const [selectedMacroEvt, setSelectedMacroEvt] = useState<MacroEvent | null>(null);
-  const [activeVehicleCode, setActiveVehicleCode] = useState<string>("");
-  const [activeDayDate, setActiveDayDate] = useState<string>("");
-
-  const [dayMarkDialogOpen, setDayMarkDialogOpen] = useState(false);
-  const [dayMarkDate, setDayMarkDate] = useState<string>("");
   const [dayMarkVehicleCode, setDayMarkVehicleCode] = useState<string>("");
+  
+  const { motoristas, cadastros, autotracVehicles, refreshData } = useJourneyStore();
+  const [historyParams, setHistoryParams] = useState<{senha?: string, start?: string, end?: string}>({});
+  const { data: historyData, isLoading: historyLoading, error: historyError } = useDriverHistory(historyParams.senha, historyParams.start, historyParams.end);
 
-  useEffect(() => {
-    loadBaseData();
-  }, []);
-
-  const [autotracVehicles, setAutotracVehicles] = useState<any[]>([]);
-
-  const loadBaseData = async () => {
-    const [{ data: mData }, { data: cData }, { data: avData }] = await Promise.all([
-      supabase.from("motoristas").select("id, nome, cpf, senha").eq("ativo", true).order("nome"),
-      supabase.from("cadastros").select("veiculo_id, nome_veiculo, numero_frota, motorista_nome, motorista_id").eq("ativo", true),
-      (supabase as any).from("autotrac_vehicles").select("vehicle_code, name"),
-    ]);
-    if (mData) setMotoristas(mData);
-    if (cData) setCadastros(cData);
-    if (avData) setAutotracVehicles(avData);
-  };
+  // Base data is now in useJourneyStore
 
   const getDateRange = (): { start: string; end: string } | null => {
     const now = new Date();
@@ -117,113 +85,51 @@ export default function MovimentoCondutorTab() {
     }
 
     let found: Motorista | null = null;
-
     if (searchFrota.trim()) {
       const cad = cadastros.find(c => c.numero_frota === searchFrota.trim() || c.veiculo_id === searchFrota.trim());
-      if (cad?.motorista_id) found = motoristas.find(m => m.id === cad.motorista_id) || null;
-      if (!found && cad?.motorista_nome) found = motoristas.find(m => m.nome === cad.motorista_nome) || null;
+      if (cad?.motorista_id) found = motoristas.find((m: any) => m.id === cad.motorista_id) || null;
+      if (!found && cad?.motorista_nome) found = motoristas.find((m: any) => m.nome === cad.motorista_nome) || null;
     }
 
     if (!found && searchText.trim()) {
       const q = searchText.trim().toLowerCase();
-      const matches = motoristas.filter(m => m.nome.toLowerCase().includes(q));
-      if (matches.length === 1) found = matches[0];
+      const matches = motoristas.filter((m: any) => m.nome.toLowerCase().includes(q));
+      if (matches.length === 1) found = matches[0] as unknown as Motorista;
       else if (matches.length > 1) {
-        found = matches[0];
+        found = matches[0] as unknown as Motorista;
         toast.info(`${matches.length} motoristas encontrados, mostrando: ${found.nome}`);
       }
     }
 
     if (!found) { toast.error("Motorista não encontrado"); return; }
     setSelectedMotorista(found);
-    loadDriverData(found);
-  };
-
-  const loadDriverData = async (driver: Motorista) => {
+    
     const range = getDateRange();
     if (!range) { toast.error("Selecione o período"); return; }
+    
+    setHistoryParams({
+      senha: found.senha,
+      start: new Date(range.start + "T00:00:00").toISOString(),
+      end: new Date(range.end + "T23:59:59").toISOString()
+    });
+  };
 
-    setLoading(true);
-    try {
-      const driverCads = cadastros.filter(c => c.motorista_id === driver.id || c.motorista_nome === driver.nome);
-      const legacyVehicleCodes = new Set<number>();
-      for (const cad of driverCads) {
-        const frotaNum = cad.numero_frota;
-        const av = autotracVehicles.find((v: any) => {
-          const vName = v.name?.trim() || "";
-          const numMatch = vName.match(/^(\d+)/);
-          const vFrota = numMatch ? numMatch[1] : "";
-          return vFrota === frotaNum || vFrota.replace(/^0+/, "") === frotaNum.replace(/^0+/, "") || vFrota.padStart(3, "0") === frotaNum.padStart(3, "0");
-        });
-        if (av) legacyVehicleCodes.add(Number(av.vehicle_code));
-      }
-      const legacyArr = Array.from(legacyVehicleCodes);
+  // Effect to map historyData when it arrives
+  useEffect(() => {
+    if (historyData && selectedMotorista) {
+      console.log(`[API] Processando ${historyData.events.length} eventos históricos...`);
+      const range = getDateRange();
+      if (!range) return;
 
-      const pwdFilter = driver.senha ? `driver_password.eq.${driver.senha},raw_data->>MessageText.ilike.%_${driver.senha}%` : "";
-      const vehFilter = legacyArr.length > 0 ? `vehicle_code.in.(${legacyArr.join(",")})` : "";
-      
-      let orQuery = "";
-      if (pwdFilter && vehFilter) orQuery = `${pwdFilter},${vehFilter}`;
-      else if (pwdFilter) orQuery = pwdFilter;
-      else if (vehFilter) orQuery = vehFilter;
-      else {
-        toast.error("Motorista não possui senha cadastrada nem vínculos históricos na frota.");
-        setLoading(false);
-        return;
-      }
+      const driver = selectedMotorista;
+      const allEvents = historyData.events;
+      const overridesData = historyData.overrides;
 
-      const startDate = new Date(range.start + "T00:00:00");
-      const endDate = new Date(range.end + "T23:59:59");
-
-      let allEvents: any[] = [];
-      let from = 0;
-      const pageSize = 1000;
-      while (true) {
-        let query = (supabase as any)
-          .from("autotrac_eventos")
-          .select("*")
-          .gte("message_time", startDate.toISOString())
-          .lte("message_time", endDate.toISOString())
-          .order("message_time", { ascending: true });
-        
-        if (orQuery) query = query.or(orQuery);
-        
-        const { data: page, error } = await query.range(from, from + pageSize - 1);
-        
-        if (error) throw error;
-        if (!page || page.length === 0) break;
-        allEvents = allEvents.concat(page);
-        if (page.length < pageSize) break;
-        from += pageSize;
-      }
-
-      // Filter events to ENSURE they belong to the driver (discard events from legacy vehicles that belong to someone else)
-      allEvents = allEvents.filter((e: any) => {
-        const passwordMatch = e.raw_data?.MessageText ? String(e.raw_data.MessageText).match(/^_(\w+)/) : null;
-        const extractedPwd = e.driver_password || (passwordMatch ? passwordMatch[1] : null);
-        if (extractedPwd && driver.senha && extractedPwd !== driver.senha) return false;
-        return true;
-      });
-
-      if (allEvents.length === 0) {
-         toast.info("Nenhuma jornada registrada para o motorista neste período.");
-      }
-
-      const vcSet = new Set<number>();
+      const vcSet = new Set<string>();
       for (const e of allEvents) {
-        if (e.vehicle_code) vcSet.add(Number(e.vehicle_code));
+        if (e.vehicle_code) vcSet.add(String(e.vehicle_code));
       }
       const vehicleCodes = Array.from(vcSet);
-
-      const [res1, res2] = await Promise.all([
-        (supabase as any).from("macro_overrides").select("*").in("vehicle_code", vehicleCodes.length > 0 ? vehicleCodes : [0]),
-        (supabase as any).from("macro_overrides").select("*").eq("vehicle_code", 0).eq("original_event_id", driver.id)
-      ]);
-      
-      const overridesMap = new Map();
-      if (res1.data) res1.data.forEach((d: any) => overridesMap.set(d.id, d));
-      if (res2.data) res2.data.forEach((d: any) => overridesMap.set(d.id, d));
-      const overridesData = Array.from(overridesMap.values()).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
       const mappedEvents: MacroEvent[] = allEvents
         .filter((e: any) => VALID_MACROS.has(e.macro_number))
@@ -238,11 +144,11 @@ export default function MovimentoCondutorTab() {
           dataJornada: toDateKey(new Date(e.message_time)),
         }));
 
-      const keyMap = new Map<string, number>();
       const deduped: MacroEvent[] = [];
+      const keys = new Set<string>();
       for (const evt of mappedEvents) {
         const key = `${evt.vehicleId}_${evt.macroNumber}_${evt.createdAt.getTime()}`;
-        if (!keyMap.has(key)) { keyMap.set(key, deduped.length); deduped.push(evt); }
+        if (!keys.has(key)) { keys.add(key); deduped.push(evt); }
       }
 
       let finalEvents = [...deduped];
@@ -284,14 +190,13 @@ export default function MovimentoCondutorTab() {
         });
       }
 
-      // Build journeys and group by date
+      // Grouping logic... (identical to old one)
       const journeysByDate = new Map<string, Journey[]>();
       const eventsByDate = new Map<string, MacroEvent[]>();
       const byVehicle = new Map<string, MacroEvent[]>();
       for (const e of finalEvents) {
         if (!byVehicle.has(e.vehicleId)) byVehicle.set(e.vehicleId, []);
         byVehicle.get(e.vehicleId)!.push(e);
-        // Also group events by date for timeline
         const dk = e.dataJornada || toDateKey(e.createdAt);
         if (!eventsByDate.has(dk)) eventsByDate.set(dk, []);
         eventsByDate.get(dk)!.push(e);
@@ -328,14 +233,18 @@ export default function MovimentoCondutorTab() {
       }
 
       setDayDataList(days);
-      setExpandedDays(new Set());
-    } catch (err: any) {
-      console.error("Erro ao carregar dados do motorista:", err);
-      toast.error("Erro ao carregar dados: " + err.message);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [historyData, selectedMotorista]);
+
+  const loadDriverData = useCallback((driver: Motorista) => {
+    const range = getDateRange();
+    if (!range) return;
+    setHistoryParams({
+      senha: driver.senha,
+      start: new Date(range.start + "T00:00:00").toISOString(),
+      end: new Date(range.end + "T23:59:59").toISOString()
+    });
+  }, []);
 
   const toggleDay = (date: string) => {
     setExpandedDays(prev => { const n = new Set(prev); n.has(date) ? n.delete(date) : n.add(date); return n; });
@@ -350,48 +259,63 @@ export default function MovimentoCondutorTab() {
     originalMacroNumber?: number;
     originalEventTime?: string;
   }) => {
-    const { data: userData } = await supabase.auth.getUser();
-    const { error } = await (supabase as any)
-      .from("macro_overrides")
-      .insert({
-        vehicle_code: Number(activeVehicleCode),
-        original_event_id: data.originalEventId || null,
-        action: data.action,
-        macro_number: data.macroNumber || null,
-        event_time: data.eventTime || null,
-        original_macro_number: data.originalMacroNumber || null,
-        original_event_time: data.originalEventTime || null,
-        reason: data.reason,
-        created_by: userData?.user?.id || null,
-      });
+    toast.info("Salvando alteração via API...");
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (error) { toast.error("Erro ao salvar alteração: " + error.message); throw error; }
+    const payload = {
+      vehicle_code: Number(activeVehicleCode),
+      original_event_id: data.originalEventId || null,
+      action: data.action,
+      macro_number: data.macroNumber || null,
+      event_time: data.eventTime || null,
+      original_macro_number: data.originalMacroNumber || null,
+      original_event_time: data.originalEventTime || null,
+      reason: data.reason,
+      created_by: user?.id || null,
+    };
+
+    const { error } = await supabase.functions.invoke("dashboard-api", {
+      method: "POST",
+      body: { action: "upsert_override", payload }
+    });
+
+    if (error) { toast.error("Erro ao salvar alteração via API: " + (error.message || error)); throw error; }
     toast.success(data.action === "insert" ? "Macro inserida" : data.action === "edit" ? "Macro editada" : "Macro excluída");
     if (selectedMotorista) loadDriverData(selectedMotorista);
   };
 
   const handleSaveDayMark = async (markData: { type: DayMarkType; reason: string; date: string; vehicleCode: string }) => {
-    const { data: userData } = await supabase.auth.getUser();
-    const { error } = await (supabase as any)
-      .from("macro_overrides")
-      .insert({
-        vehicle_code: 0,
-        original_event_id: selectedMotorista?.id,
-        action: markData.type,
-        event_time: new Date(markData.date + "T12:00:00").toISOString(),
-        reason: markData.reason,
-        created_by: userData?.user?.id || null,
-      });
+    toast.info("Salvando marcação via API...");
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (error) { toast.error("Erro ao salvar marcação: " + error.message); throw error; }
+    const payload = {
+      vehicle_code: 0,
+      original_event_id: selectedMotorista?.id,
+      action: markData.type,
+      event_time: new Date(markData.date + "T12:00:00").toISOString(),
+      reason: markData.reason,
+      created_by: user?.id || null,
+    };
+
+    const { error } = await supabase.functions.invoke("dashboard-api", {
+      method: "POST",
+      body: { action: "upsert_override", payload }
+    });
+
+    if (error) { toast.error("Erro ao salvar marcação via API: " + (error.message || error)); throw error; }
     toast.success(`Dia marcado como ${DAY_MARK_LABELS[markData.type]}`);
     if (selectedMotorista) loadDriverData(selectedMotorista);
     refreshData();
   };
 
   const handleDeleteDayMark = async (markId: string) => {
-    const { error } = await (supabase as any).from("macro_overrides").delete().eq("id", markId);
-    if (error) { toast.error("Erro ao remover marcação: " + error.message); return; }
+    toast.info("Removendo marcação via API...");
+    const { error } = await supabase.functions.invoke("dashboard-api", {
+      method: "POST",
+      body: { action: "delete_override", payload: { id: markId } }
+    });
+
+    if (error) { toast.error("Erro ao remover marcação via API: " + (error.message || error)); return; }
     toast.success("Marcação removida");
     if (selectedMotorista) loadDriverData(selectedMotorista);
     refreshData();
@@ -493,7 +417,8 @@ export default function MovimentoCondutorTab() {
         </div>
       )}
 
-      {loading && <p className="text-sm text-muted-foreground">Carregando...</p>}
+      {historyLoading && <p className="text-sm text-muted-foreground">Carregando dados históricos via API...</p>}
+      {historyError && <p className="text-sm text-destructive">Erro ao carregar histórico: {(historyError as Error).message}</p>}
 
       {/* Day Grid — same visual style as ControleTab */}
       {!loading && selectedMotorista && dayDataList.length > 0 && (

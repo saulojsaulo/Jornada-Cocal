@@ -158,27 +158,24 @@ Deno.serve(async (req) => {
     const BATCH_SIZE = 10;
     for (let i = 0; i < vehicles.length; i += BATCH_SIZE) {
       const batch = vehicles.slice(i, i + BATCH_SIZE);
+      const allEventsInBatch: any[] = [];
+      const allPositionsInBatch: any[] = [];
 
-      const promises = batch.map(async (vehicle) => {
+      await Promise.all(batch.map(async (vehicle) => {
         try {
-          // Fetch return messages (contains macro events)
+          // Fetch return messages
           const messagesData = await autotracFetch(
             `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/returnmessages?_limit=500`,
             AUTOTRAC_API_KEY,
             authHeader
           );
           const messages: AutotracReturnMessage[] = messagesData?.Data || messagesData || [];
-
-          // Filter only valid macro events (macro 1-10)
           const macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
 
           if (macroEvents.length > 0) {
-            const eventRows = macroEvents.map((m) => {
-              // Extract driver password from MessageText format: "_XXXXXX ..."
+            macroEvents.forEach((m) => {
               const passwordMatch = (m.MessageText || "").match(/^_(\w+)/);
-              const driverPassword = passwordMatch ? passwordMatch[1] : null;
-
-              return {
+              allEventsInBatch.push({
                 autotrac_id: m.ID,
                 vehicle_code: vehicle.Code,
                 account_number: m.AccountNumber,
@@ -191,17 +188,10 @@ Deno.serve(async (req) => {
                 ignition: m.Ignition,
                 position_time: m.PositionTime || null,
                 vehicle_address: m.VehicleAddress,
-                driver_password: driverPassword,
+                driver_password: passwordMatch ? passwordMatch[1] : null,
                 raw_data: m as unknown as Record<string, unknown>,
-              };
+              });
             });
-
-            const { error: eErr } = await supabase
-              .from("autotrac_eventos")
-              .upsert(eventRows, { onConflict: "vehicle_code,macro_number,message_time", ignoreDuplicates: true });
-
-            if (eErr) console.error(`Error upserting events for vehicle ${vehicle.Code}:`, eErr);
-            else totalEvents += eventRows.length;
           }
 
           // Fetch positions
@@ -214,31 +204,41 @@ Deno.serve(async (req) => {
             const positions = posData?.Data || posData || [];
             if (Array.isArray(positions) && positions.length > 0) {
               const pos = positions[0];
-              const { error: pErr } = await supabase.from("autotrac_positions").upsert(
-                {
-                  vehicle_code: vehicle.Code,
-                  latitude: pos.Latitude,
-                  longitude: pos.Longitude,
-                  landmark: pos.Landmark || null,
-                  speed: pos.Speed || 0,
-                  ignition: pos.Ignition || 0,
-                  position_time: pos.PositionTime || null,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "vehicle_code" }
-              );
-              if (pErr) console.error(`Error upserting position for vehicle ${vehicle.Code}:`, pErr);
-              else totalPositions++;
+              allPositionsInBatch.push({
+                vehicle_code: vehicle.Code,
+                latitude: pos.Latitude,
+                longitude: pos.Longitude,
+                landmark: pos.Landmark || null,
+                speed: pos.Speed || 0,
+                ignition: pos.Ignition || 0,
+                position_time: pos.PositionTime || null,
+                updated_at: new Date().toISOString(),
+              });
             }
           } catch (posErr) {
             console.error(`Error fetching positions for vehicle ${vehicle.Code}:`, posErr);
           }
         } catch (err) {
-          console.error(`Error processing vehicle ${vehicle.Code} (${vehicle.Name}):`, err);
+          console.error(`Error processing vehicle ${vehicle.Code}:`, err);
         }
-      });
+      }));
 
-      await Promise.all(promises);
+      // Execute bulk upserts for the entire batch
+      if (allEventsInBatch.length > 0) {
+        const { error: eErr } = await supabase
+          .from("autotrac_eventos")
+          .upsert(allEventsInBatch, { onConflict: "vehicle_code,macro_number,message_time", ignoreDuplicates: true });
+        if (eErr) console.error("Error batch upserting events:", eErr);
+        else totalEvents += allEventsInBatch.length;
+      }
+
+      if (allPositionsInBatch.length > 0) {
+        const { error: pErr } = await supabase
+          .from("autotrac_positions")
+          .upsert(allPositionsInBatch, { onConflict: "vehicle_code" });
+        if (pErr) console.error("Error batch upserting positions:", pErr);
+        else totalPositions += allPositionsInBatch.length;
+      }
     }
 
     const result = {

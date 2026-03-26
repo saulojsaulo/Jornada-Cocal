@@ -3,6 +3,8 @@ import { Vehicle, MacroEvent, MacroNumber, Journey } from "@/types/journey";
 import { buildJourneys, generateId, toDateKey } from "@/lib/journeyEngine";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { useDashboardData } from "@/hooks/useDashboardData";
 
 export type DayMarkType = "folga" | "falta" | "atestado" | "afastamento";
 
@@ -52,46 +54,6 @@ const VALID_MACROS = new Set([1, 2, 3, 4, 5, 6, 9, 10]);
 let hmrReloadScheduled = false;
 
 const DAY_MARK_ACTIONS = new Set(["folga", "falta", "atestado", "afastamento"]);
-const LOAD_TIMEOUT_MS = 30_000;
-const BASE_REFRESH_INTERVAL_MS = 30_000;
-const MAX_REFRESH_INTERVAL_MS = 5 * 60_000;
-const REALTIME_DEBOUNCE_MS = 500;
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number = LOAD_TIMEOUT_MS): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error("BACKEND_TIMEOUT")), timeoutMs);
-
-    promise
-      .then((value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      })
-      .catch((error) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      });
-  });
-}
-
-function runWithTimeout<T>(operation: Promise<T> | PromiseLike<T>, timeoutMs: number = LOAD_TIMEOUT_MS): Promise<T> {
-  return withTimeout(Promise.resolve(operation), timeoutMs);
-}
-
-function isBackendUnavailableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
-  return (
-    msg.includes("backend_timeout") ||
-    msg.includes("connection timeout") ||
-    msg.includes("request canceled") ||
-    msg.includes("failed to fetch") ||
-    msg.includes("network") ||
-    msg.includes("status 544") ||
-    msg.includes("socket hang up") ||
-    msg.includes("eof") ||
-    msg.includes("connection refused") ||
-    msg.includes("failed to connect")
-  );
-}
 
 const HMR_FALLBACK_STORE: JourneyStore = {
   vehicles: [],
@@ -137,385 +99,126 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const [motoristas, setMotoristas] = useState<any[]>([]);
   const [cadastros, setCadastros] = useState<any[]>([]);
   const [autotracVehicles, setAutotracVehicles] = useState<any[]>([]);
-  const isFirstLoad = useRef(true);
-  const isFetchingRef = useRef(false);
-  const fetchRef = useRef<(() => Promise<void>) | null>(null);
-  const realtimeDebounceTimerRef = useRef<number | null>(null);
-  const autoRefreshTimerRef = useRef<number | null>(null);
-  const autoRefreshDelayRef = useRef(BASE_REFRESH_INTERVAL_MS);
-  const outageToastShownRef = useRef(false);
+  
+  const queryClient = useQueryClient();
+  const { data: queryData, isLoading: queryLoading, error: queryError, isFetching: querySyncing } = useDashboardData(7); // Fetch 7 days for full visibility
 
-  const clearAutoRefreshTimer = useCallback(() => {
-    if (autoRefreshTimerRef.current !== null) {
-      window.clearTimeout(autoRefreshTimerRef.current);
-      autoRefreshTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleAutoRefresh = useCallback((delayMs: number) => {
-    clearAutoRefreshTimer();
-    autoRefreshTimerRef.current = window.setTimeout(() => {
-      void fetchRef.current?.();
-    }, delayMs);
-  }, [clearAutoRefreshTimer]);
-
-  // Load data from local DB tables
-  const loadLocalData = useCallback(async (trigger: "auto" | "manual" = "manual") => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-
-    if (isFirstLoad.current) {
-      setIsLoading(true);
-    } else {
-      setIsSyncing(true);
-    }
-
-    if (trigger === "manual") {
-      autoRefreshDelayRef.current = BASE_REFRESH_INTERVAL_MS;
-    }
-
-    setError(null);
-
-    try {
-      // Fetch vehicles from local autotrac_vehicles table
-      const { data: vehiclesData, error: vErr } = await runWithTimeout<any>((supabase as any)
-        .from("autotrac_vehicles")
-        .select("*")
-        .order("name"));
-
-      if (vErr) throw vErr;
-
-      // Fetch cadastros (local bindings)
-      const { data: cadastrosData, error: cErr } = await runWithTimeout<any>(supabase
-        .from("cadastros")
-        .select("veiculo_id, motorista_nome, gestor_nome, numero_frota, nome_veiculo")
-        .eq("ativo", true));
-
-      if (cErr) throw cErr;
-
-      // Build cadastro lookup by both veiculo_id and numero_frota
-      const cadastroById = new Map<string, any>();
-      if (cadastrosData) {
-        for (const c of cadastrosData) {
-          cadastroById.set(c.veiculo_id, {
-            veiculo_id: c.veiculo_id,
-            motorista_nome: c.motorista_nome,
-            gestor_nome: c.gestor_nome,
-            numero_frota: c.numero_frota,
-            nome_veiculo: c.nome_veiculo,
-          });
-        }
-      }
-
-      const mappedVehicles: Vehicle[] = (vehiclesData || []).map((v: any) => {
-        const vehicleName = (v.name?.trim() || `Veículo ${v.vehicle_code}`);
-        const numMatch = vehicleName.match(/^(\d+)/);
-        const frotaNum = numMatch ? numMatch[1] : "";
-        const cadastro = cadastroById.get(String(v.vehicle_code));
-        const finalName = cadastro?.nome_veiculo?.trim() ? cadastro.nome_veiculo : vehicleName;
+  // Sincronização automática via React Query.
+  // Sync data from queryData to state
+  useEffect(() => {
+    if (queryData) {
+      console.log(`[STATE] Sincronizando dados do cache para o estado do contexto...`);
+      
+      // Map vehicles
+      const mappedVehicles: Vehicle[] = queryData.vehicles.map((v: any) => {
+        const cadastro = queryData.cadastros.find((c: any) => String(c.veiculo_id) === String(v.vehicle_code) || String(c.numero_frota) === String(v.vehicle_code));
         return {
           id: String(v.vehicle_code),
-          name: finalName,
-          numeroFrota: cadastro?.numero_frota || frotaNum,
+          name: v.name,
+          numeroFrota: cadastro?.numero_frota || "",
           driverName: cadastro?.motorista_nome || null,
           gestorName: cadastro?.gestor_nome || null,
-          externalVehicleId: cadastro?.veiculo_id || null,
+          externalVehicleId: v.id,
         };
       });
-
       setVehicles(mappedVehicles);
-      setCadastros(cadastrosData || []);
-      setAutotracVehicles(vehiclesData || []);
+      setCadastros(queryData.cadastros);
+      setAutotracVehicles(queryData.vehicles);
+      setMotoristas(queryData.motoristas);
 
-      // Fetch events from local autotrac_eventos with fallback window
-      const fetchEventsByWindow = async (daysWindow: number, pageSize: number = 600, includeDriverPassword = true) => {
-        const start = new Date();
-        start.setDate(start.getDate() - daysWindow);
+      // Map events
+      const mappedEvents: MacroEvent[] = queryData.events.map((e: any) => ({
+        id: e.id,
+        vehicleId: String(e.vehicle_code),
+        macroNumber: e.macro_number as MacroNumber,
+        createdAt: new Date(e.message_time),
+        isManual: false,
+        endereco: e.landmark || null,
+        latitude: e.latitude ? Number(e.latitude) : null,
+        longitude: e.longitude ? Number(e.longitude) : null,
+        dataJornada: toDateKey(new Date(e.message_time)),
+        driverId: e.driver_id || null,
+        driverName: e.driver_name || null,
+      }));
+      setEvents(mappedEvents);
 
-        const fields = includeDriverPassword
-          ? "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password, raw_data"
-          : "id, vehicle_code, macro_number, message_time, landmark, latitude, longitude";
+      // Map positions
+      const posMap = new Map();
+      queryData.positions.forEach((p: any) => {
+        posMap.set(String(p.vehicle_code), {
+          endereco: p.landmark?.trim() || "",
+          latitude: p.latitude ? Number(p.latitude) : null,
+          longitude: p.longitude ? Number(p.longitude) : null,
+          dataPosicao: p.position_time || null,
+        });
+      });
+      setVehiclePositions(posMap);
 
-        let all: any[] = [];
-        let from = 0;
-
-        while (true) {
-          const { data: page, error: eErr } = await runWithTimeout<any>((supabase as any)
-            .from("autotrac_eventos")
-            .select(fields)
-            .gte("message_time", start.toISOString())
-            .order("message_time", { ascending: true })
-            .range(from, from + pageSize - 1));
-
-          if (eErr) throw eErr;
-          if (!page || page.length === 0) break;
-          all = all.concat(page);
-          if (page.length < pageSize) break;
-          from += pageSize;
-        }
-
-        return all;
-      };
-
-      let eventsWindowDays = 7;
-      let allEvents: any[] = [];
-      let hasDriverPassword = true;
-
-      try {
-        allEvents = await fetchEventsByWindow(eventsWindowDays, 600, true);
-      } catch (primaryErr: any) {
-        // If the error is a missing column (migration not applied yet), retry without it
-        const errMsg = String(primaryErr?.message || primaryErr).toLowerCase();
-        if (errMsg.includes("driver_password") || errMsg.includes("column") || errMsg.includes("does not exist")) {
-          hasDriverPassword = false;
-          try {
-            allEvents = await fetchEventsByWindow(eventsWindowDays, 600, false);
-          } catch (fallbackErr) {
-            if (!isBackendUnavailableError(fallbackErr)) throw fallbackErr;
-            eventsWindowDays = 2;
-            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, false);
-          }
-        } else if (!isBackendUnavailableError(primaryErr)) {
-          throw primaryErr;
-        } else {
-          eventsWindowDays = 2;
-          try {
-            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, true);
-          } catch {
-            hasDriverPassword = false;
-            allEvents = await fetchEventsByWindow(eventsWindowDays, 400, false);
-          }
-        }
-      }
-
-      // Build a senha→driver lookup map from motoristas table (gracefully: column may not exist yet)
-      const driverBySenha = new Map<string, { id: string; nome: string }>();
-      if (hasDriverPassword) {
-        try {
-          const { data: motoristasData } = await runWithTimeout<any>((supabase as any)
-            .from("motoristas")
-            .select("id, nome, senha")
-            .eq("ativo", true));
-
-          if (motoristasData) {
-            for (const mot of motoristasData) {
-              if (mot.senha) driverBySenha.set(mot.senha, { id: mot.id, nome: mot.nome });
-            }
-            setMotoristas(motoristasData);
-          }
-        } catch {
-          // senha column not yet migrated — skip driver identification silently
-        }
-      }
-
-      const mappedEvents: MacroEvent[] = allEvents
-        .filter((e: any) => VALID_MACROS.has(e.macro_number))
-        .map((e: any) => {
-          const passwordMatch = e.raw_data?.MessageText ? String(e.raw_data.MessageText).match(/^_(\w+)/) : null;
-          const extractedPassword = e.driver_password || (passwordMatch ? passwordMatch[1] : null);
-          const driver = extractedPassword ? driverBySenha.get(extractedPassword) : null;
-          return {
-            id: e.id,
-            vehicleId: String(e.vehicle_code),
-            macroNumber: e.macro_number as MacroNumber,
-            createdAt: new Date(e.message_time),
-            endereco: e.landmark || null,
-            latitude: e.latitude ? Number(e.latitude) : null,
-            longitude: e.longitude ? Number(e.longitude) : null,
-            dataJornada: toDateKey(new Date(e.message_time)),
-            driverId: driver?.id || null,
-            driverName: driver?.nome || null,
+      // Map day marks from overrides
+      const marks = new Map<string, DayMarkInfo>();
+      const dMarks = new Map<string, DayMarkInfo>();
+      queryData.overrides.forEach((o: any) => {
+        if (DAY_MARK_ACTIONS.has(o.action)) {
+          const info: DayMarkInfo = {
+            type: o.action as DayMarkType,
+            reason: o.reason || "",
+            id: o.id,
+            vehicleCode: o.vehicle_code,
           };
-        });
-
-      // Deduplicate by vehicle+macro+timestamp
-      const keyMap = new Map<string, number>();
-      const deduped: MacroEvent[] = [];
-      for (const evt of mappedEvents) {
-        const key = `${evt.vehicleId}_${evt.macroNumber}_${evt.createdAt.getTime()}`;
-        if (!keyMap.has(key)) {
-          keyMap.set(key, deduped.length);
-          deduped.push(evt);
-        }
-      }
-
-      // Fetch manual macro overrides
-      const { data: overridesData, error: oErr } = await runWithTimeout<any>((supabase as any)
-        .from("macro_overrides")
-        .select("*")
-        .order("created_at", { ascending: true }));
-
-      if (oErr) throw oErr;
-
-      // Apply overrides to events
-      let finalEvents = [...deduped];
-
-      if (overridesData && overridesData.length > 0) {
-        const deletedIds = new Set<string>();
-        const editedIds = new Map<string, any>(); // original_event_id -> override
-        const newDayMarks = new Map<string, DayMarkInfo>();
-
-        for (const ov of overridesData) {
-          if (ov.action === "delete" && ov.original_event_id) {
-            deletedIds.add(ov.original_event_id);
-          } else if (ov.action === "edit" && ov.original_event_id) {
-            editedIds.set(ov.original_event_id, ov);
-          } else if (ov.action === "insert") {
-            // Add as a new synthetic event
-            finalEvents.push({
-              id: `manual_${ov.id}`,
-              vehicleId: String(ov.vehicle_code),
-              macroNumber: ov.macro_number as MacroNumber,
-              createdAt: new Date(ov.event_time),
-              endereco: null,
-              latitude: null,
-              longitude: null,
-              dataJornada: toDateKey(new Date(ov.event_time)),
-              isManual: true,
-            } as any);
+          const dateKey = toDateKey(new Date(o.event_time));
+          marks.set(`${o.vehicle_code}_${dateKey}`, info);
+          
+          const motorista = queryData.cadastros.find((c: any) => String(c.veiculo_id) === String(o.vehicle_code));
+          if (motorista?.motorista_nome) {
+            dMarks.set(`${motorista.motorista_nome}_${dateKey}`, info);
           }
         }
-
-        // Remove deleted events
-        finalEvents = finalEvents.filter(e => !deletedIds.has(e.id));
-
-        // Apply edits
-        finalEvents = finalEvents.map(e => {
-          const edit = editedIds.get(e.id);
-          if (edit) {
-            return {
-              ...e,
-              macroNumber: edit.macro_number as MacroNumber,
-              createdAt: new Date(edit.event_time),
-              dataJornada: toDateKey(new Date(edit.event_time)),
-              isManual: true,
-            } as any;
-          }
-          return e;
-        });
-      }
-
-      console.log(`Loaded ${deduped.length} events (${overridesData?.length || 0} overrides), ${mappedVehicles.length} vehicles from local DB`);
-      setEvents(finalEvents);
-
-      // Fetch positions from local autotrac_positions table
-      const { data: posData, error: pErr } = await runWithTimeout<any>((supabase as any)
-        .from("autotrac_positions")
-        .select("vehicle_code, landmark, latitude, longitude, position_time"));
-
-      if (pErr) throw pErr;
-
-      if (posData) {
-        const posMap = new Map<string, { endereco: string; latitude: number | null; longitude: number | null; dataPosicao: string | null }>();
-        for (const p of posData) {
-          posMap.set(String(p.vehicle_code), {
-            endereco: (p as any).landmark?.trim() || "",
-            latitude: p.latitude ? Number(p.latitude) : null,
-            longitude: p.longitude ? Number(p.longitude) : null,
-            dataPosicao: p.position_time || null,
-          });
-        }
-        setVehiclePositions(posMap);
-      }
-
-      if (eventsWindowDays < 7) {
-        setError("Conexão instável: exibindo dados parciais dos últimos 2 dias enquanto reconecta.");
-        if (trigger === "manual" || !outageToastShownRef.current) {
-          toast.warning("Conexão instável detectada. Exibindo apenas os dados mais recentes para manter o sistema operacional.");
-          outageToastShownRef.current = true;
-        }
-      } else {
-        setError(null);
-        outageToastShownRef.current = false;
-      }
-
-      setLastSyncAt(new Date());
-      autoRefreshDelayRef.current = BASE_REFRESH_INTERVAL_MS;
-      scheduleAutoRefresh(BASE_REFRESH_INTERVAL_MS);
-    } catch (err: any) {
-      console.error("Erro ao carregar dados locais:", err);
-
-      const backendUnavailable = isBackendUnavailableError(err);
-      const message = err instanceof Error ? err.message : "Erro ao carregar dados";
-
-      if (backendUnavailable) {
-        const nextDelay = Math.min(autoRefreshDelayRef.current * 2, MAX_REFRESH_INTERVAL_MS);
-        autoRefreshDelayRef.current = nextDelay;
-        setError("Conexão com o backend indisponível. O sistema está tentando reconectar automaticamente.");
-        scheduleAutoRefresh(nextDelay);
-
-        if (trigger === "manual" || !outageToastShownRef.current) {
-          toast.error("Servidor indisponível no momento. Tentaremos reconectar automaticamente.");
-          outageToastShownRef.current = true;
-        }
-      } else {
-        setError(message);
-        scheduleAutoRefresh(BASE_REFRESH_INTERVAL_MS);
-
-        if (trigger === "manual") {
-          toast.error("Erro ao carregar dados do banco local");
-        }
-      }
-    } finally {
-      isFetchingRef.current = false;
-      setIsLoading(false);
-      setIsSyncing(false);
-      isFirstLoad.current = false;
+      });
+      setDayMarks(marks);
+      setDriverDayMarks(dMarks);
+      
+      setLastSyncAt(new Date(queryData.syncedAt));
+      setError(null);
     }
-  }, [scheduleAutoRefresh]);
-  
-  // Debounced version of loadLocalData specifically for Realtime events
-  const debouncedLoadLocalData = useCallback(() => {
-    if (realtimeDebounceTimerRef.current) window.clearTimeout(realtimeDebounceTimerRef.current);
-    realtimeDebounceTimerRef.current = window.setTimeout(() => {
-      void loadLocalData("auto");
-    }, REALTIME_DEBOUNCE_MS);
-  }, [loadLocalData]);
+  }, [queryData]);
 
-  // Sync from Autotrac API via edge function
-  const syncFromAutotrac = useCallback(async () => {
-    setIsSyncing(true);
-    try {
-      toast.info("Sincronizando com Autotrac...");
-
-      const { data, error: fnErr } = await runWithTimeout<any>(supabase.functions.invoke("autotrac-sync"), 60_000); // 60s timeout
-
-      if (fnErr) throw fnErr;
-
-      if (data?.success) {
-        toast.success(
-          `Sincronizado: ${data.vehicles} veículos, ${data.events} eventos`
-        );
-        // Reload local data after sync
-        await loadLocalData("manual");
-      } else {
-        throw new Error(data?.error || "Erro desconhecido na sincronização");
-      }
-    } catch (err: any) {
-      console.error("Erro ao sincronizar com Autotrac:", err);
-      if (isBackendUnavailableError(err)) {
-        toast.error("Servidor indisponível. Tente novamente em alguns instantes.");
-      } else {
-        toast.error(`Erro na sincronização: ${err.message}`);
-      }
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [loadLocalData]);
-
-  // Initial load with adaptive auto-refresh and REALTIME
+  // Handle errors from React Query
   useEffect(() => {
-    fetchRef.current = () => loadLocalData("auto");
-    void loadLocalData("auto");
+    if (queryError) {
+      setError("Falha na sincronização. Tentando reconectar...");
+    }
+  }, [queryError]);
 
-    // Subscribe to Realtime changes
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["dashboard-data"] });
+  }, [queryClient]);
+
+  const debouncedLoadLocalData = useCallback(() => {
+    refreshData();
+  }, [refreshData]);
+
+  const syncFromAutotrac = useCallback(async () => {
+    // Sincronização agora é gerida pelo backend (Edge Functions + pg_cron)
+    // Para manter compatibilidade de UI se alguém clicar no botão "Sincronizar":
+    toast.info("Iniciando sincronização forçada via Edge Function...");
+    const { error } = await supabase.functions.invoke("autotrac-sync");
+    if (error) {
+      toast.error("Falha ao disparar sincronização manual");
+    } else {
+      toast.success("Comando de sincronização enviado com sucesso");
+      refreshData();
+    }
+  }, [refreshData]);
+
+  // Realtime Subscriptions
+  useEffect(() => {
     const channel = supabase
-      .channel("auto-refresh-channel")
+      .channel("global-updates")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "autotrac_eventos" },
         () => {
-          console.log("[REALTIME] Novo evento detectado, agendando atualização...");
+          console.log("[REALTIME] Novo evento detectado, invalidando cache...");
           debouncedLoadLocalData();
         }
       )
@@ -577,12 +280,12 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     }, 10 * 60 * 1000);
 
     return () => {
-      clearAutoRefreshTimer();
-      clearInterval(syncInterval);
-      if (realtimeDebounceTimerRef.current) window.clearTimeout(realtimeDebounceTimerRef.current);
+      // No longer needed with React Query
+      // if (realtimeDebounceTimerRef.current) window.clearTimeout(realtimeDebounceTimerRef.current);
       supabase.removeChannel(channel);
+      clearInterval(syncInterval);
     };
-  }, [loadLocalData, debouncedLoadLocalData, clearAutoRefreshTimer, syncFromAutotrac]);
+  }, [debouncedLoadLocalData, syncFromAutotrac]);
 
   // Keep addEvents for XLSX import compatibility
   const addEvents = useCallback(
@@ -670,24 +373,28 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const refreshData = useCallback(() => {
-    void loadLocalData("manual");
-  }, [loadLocalData]);
-
   const getDayMark = useCallback((vehicleId: string, date: string): DayMarkInfo | null => {
     // vehicleId is the string vehicle_code used in the app
     return dayMarks.get(`${vehicleId}_${date}`) || null;
   }, [dayMarks]);
 
+  const getDriverDayMark = useCallback((driverId: string, date: string): DayMarkInfo | null => {
+    return driverDayMarks.get(`${driverId}_${date}`) || null;
+  }, [driverDayMarks]);
+
   const value = useMemo(
     () => ({
       vehicles, events, selectedDate, setSelectedDate, addEvents,
       getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData,
-      isLoading, isSyncing, error, folgaVehicles, toggleFolga,
+      isLoading: queryLoading || isLoading,
+      isSyncing: querySyncing || isSyncing,
+      error,
+      folgaVehicles,
+      toggleFolga,
       vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac,
-      dayMarks, getDayMark, motoristas, cadastros, autotracVehicles
+      dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles
     }),
-    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, getDayMark, motoristas, cadastros, autotracVehicles]
+    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles, queryLoading, querySyncing]
   );
 
   return <JourneyContext.Provider value={value}>{children}</JourneyContext.Provider>;
