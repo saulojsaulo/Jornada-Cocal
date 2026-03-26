@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
       .gte("message_time", start.toISOString())
       .lte("message_time", end.toISOString())
       .order("message_time", { ascending: true })
-      .limit(10000);
+      .limit(5000); // Reduced from 10k to prevent timeouts
 
     if (driverSenha && driverSenha.trim() !== "") {
       // Use standard filter to be safer with special characters
@@ -178,11 +178,12 @@ Deno.serve(async (req) => {
     console.error(`Dashboard API error [Tag: ${debugTag}]:`, error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return new Response(JSON.stringify({ 
+      success: false,
       error: message, 
       tag: debugTag,
       timestamp: new Date().toISOString()
     }), {
-      status: 500,
+      status: 200, // Returning 200 with success:false to avoid CORS/Browser fetch swallowing
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
