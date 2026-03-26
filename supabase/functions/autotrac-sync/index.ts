@@ -101,6 +101,16 @@ Deno.serve(async (req) => {
     const credentials = `${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`;
     const authHeader = `Basic ${btoa(credentials)}`;
     console.log(`Auth configured for: ${AUTOTRAC_USERNAME}`);
+
+    let isQuick = false;
+    try {
+      const body = await req.json();
+      isQuick = body?.quick === true;
+    } catch {
+      // No body or invalid body means full sync
+    }
+
+    if (isQuick) console.log("Running in QUICK mode (skipping macro events)");
     // 1. Get accounts to find the account code
     const accountsData = await autotracFetch("/v1/accounts", AUTOTRAC_API_KEY, authHeader);
     const accounts = accountsData?.Data || accountsData || [];
@@ -165,14 +175,17 @@ Deno.serve(async (req) => {
 
       await Promise.all(batch.map(async (vehicle) => {
         try {
-          // Fetch return messages
-          const messagesData = await autotracFetch(
-            `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/returnmessages?_limit=500`,
-            AUTOTRAC_API_KEY,
-            authHeader
-          );
-          const messages: AutotracReturnMessage[] = messagesData?.Data || messagesData || [];
-          const macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
+          // Fetch return messages (skip if quick mode)
+          let macroEvents: AutotracReturnMessage[] = [];
+          if (!isQuick) {
+            const messagesData = await autotracFetch(
+              `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/returnmessages?_limit=500`,
+              AUTOTRAC_API_KEY,
+              authHeader
+            );
+            const messages: AutotracReturnMessage[] = messagesData?.Data || messagesData || [];
+            macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
+          }
 
           if (macroEvents.length > 0) {
             macroEvents.forEach((m) => {

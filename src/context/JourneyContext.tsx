@@ -203,7 +203,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     // Sincronização agora é gerida pelo backend (Edge Functions + pg_cron)
     // Para manter compatibilidade de UI se alguém clicar no botão "Sincronizar":
     toast.info("Iniciando sincronização forçada via Edge Function...");
-    const { error } = await supabase.functions.invoke("autotrac-sync");
+    const { error } = await supabase.functions.invoke("autotrac-sync", {
+      body: { quick: true }
+    });
     if (error) {
       toast.error("Falha ao disparar sincronização manual");
     } else {
