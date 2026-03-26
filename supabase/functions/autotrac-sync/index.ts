@@ -162,97 +162,95 @@ Deno.serve(async (req) => {
       else console.log(`Upserted ${vehicleRows.length} vehicles`);
     }
 
-    // 3. Fetch return messages (macro events) for each vehicle
-    let totalEvents = 0;
+    // 3. Fetch latest positions for ALL vehicles in ONE call (Massively faster)
+    console.log(`Fetching latest positions for ${vehicles.length} vehicles...`);
     let totalPositions = 0;
+    try {
+      const allPosData = await autotracFetch(
+        `/v1/accounts/${accountCode}/vehicles/positions`,
+        AUTOTRAC_API_KEY,
+        authHeader
+      );
+      const allPositions = allPosData?.Data || allPosData || [];
+      if (Array.isArray(allPositions) && allPositions.length > 0) {
+        const posRows = allPositions.map((p: any) => ({
+          vehicle_code: p.VehicleCode,
+          latitude: p.Latitude,
+          longitude: p.Longitude,
+          landmark: p.Landmark || null,
+          speed: p.Speed || 0,
+          ignition: p.Ignition || 0,
+          position_time: p.PositionTime || null,
+          updated_at: new Date().toISOString(),
+        }));
 
-    // Process vehicles in batches to avoid timeout
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < vehicles.length; i += BATCH_SIZE) {
-      const batch = vehicles.slice(i, i + BATCH_SIZE);
-      const allEventsInBatch: any[] = [];
-      const allPositionsInBatch: any[] = [];
+        const { error: pErr } = await supabase
+          .from("autotrac_positions")
+          .upsert(posRows, { onConflict: "vehicle_code" });
+        
+        if (pErr) console.error("Error upserting all positions:", pErr);
+        else totalPositions = posRows.length;
+      }
+    } catch (posErr) {
+      console.error("Error fetching all positions:", posErr);
+    }
 
-      await Promise.all(batch.map(async (vehicle) => {
-        try {
-          // Fetch return messages (skip if quick mode)
-          let macroEvents: AutotracReturnMessage[] = [];
-          if (!isQuick) {
+    // 4. Fetch return messages (macro events) - skip if quick mode
+    let totalEvents = 0;
+    if (!isQuick) {
+      console.log("Fetching macro events for vehicles...");
+      // Process vehicles in batches for events
+      const BATCH_SIZE = 20;
+      for (let i = 0; i < vehicles.length; i += BATCH_SIZE) {
+        const batch = vehicles.slice(i, i + BATCH_SIZE);
+        const allEventsInBatch: any[] = [];
+
+        await Promise.all(batch.map(async (vehicle) => {
+          try {
             const messagesData = await autotracFetch(
-              `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/returnmessages?_limit=500`,
+              `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/returnmessages?_limit=200`,
               AUTOTRAC_API_KEY,
               authHeader
             );
             const messages: AutotracReturnMessage[] = messagesData?.Data || messagesData || [];
-            macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
-          }
+            const macroEvents = messages.filter((m) => VALID_MACROS.has(m.MacroNumber));
 
-          if (macroEvents.length > 0) {
-            macroEvents.forEach((m) => {
-              const passwordMatch = (m.MessageText || "").match(/^_(\w+)/);
-              allEventsInBatch.push({
-                autotrac_id: m.ID,
-                vehicle_code: vehicle.Code,
-                account_number: m.AccountNumber,
-                macro_number: m.MacroNumber,
-                macro_version: m.MacroVersion,
-                message_time: m.MessageTime,
-                latitude: m.Latitude,
-                longitude: m.Longitude,
-                landmark: m.Landmark || null,
-                ignition: m.Ignition,
-                position_time: m.PositionTime || null,
-                vehicle_address: m.VehicleAddress,
-                driver_password: passwordMatch ? passwordMatch[1] : null,
-                raw_data: m as unknown as Record<string, unknown>,
-              });
-            });
-          }
-
-          // Fetch positions
-          try {
-            const posData = await autotracFetch(
-              `/v1/accounts/${accountCode}/vehicles/${vehicle.Code}/positions?_limit=1`,
-              AUTOTRAC_API_KEY,
-              authHeader
-            );
-            const positions = posData?.Data || posData || [];
-            if (Array.isArray(positions) && positions.length > 0) {
-              const pos = positions[0];
-              allPositionsInBatch.push({
-                vehicle_code: vehicle.Code,
-                latitude: pos.Latitude,
-                longitude: pos.Longitude,
-                landmark: pos.Landmark || null,
-                speed: pos.Speed || 0,
-                ignition: pos.Ignition || 0,
-                position_time: pos.PositionTime || null,
-                updated_at: new Date().toISOString(),
+            if (macroEvents.length > 0) {
+              macroEvents.forEach((m) => {
+                const passwordMatch = (m.MessageText || "").match(/^_(\w+)/);
+                allEventsInBatch.push({
+                  autotrac_id: m.ID,
+                  vehicle_code: vehicle.Code,
+                  account_number: m.AccountNumber,
+                  macro_number: m.MacroNumber,
+                  macro_version: m.MacroVersion,
+                  message_time: m.MessageTime,
+                  latitude: m.Latitude,
+                  longitude: m.Longitude,
+                  landmark: m.Landmark || null,
+                  ignition: m.Ignition,
+                  position_time: m.PositionTime || null,
+                  vehicle_address: m.VehicleAddress,
+                  driver_password: passwordMatch ? passwordMatch[1] : null,
+                  raw_data: m as unknown as Record<string, unknown>,
+                });
               });
             }
-          } catch (posErr) {
-            console.error(`Error fetching positions for vehicle ${vehicle.Code}:`, posErr);
+          } catch (err) {
+            console.error(`Error processing events for vehicle ${vehicle.Code}:`, err);
           }
-        } catch (err) {
-          console.error(`Error processing vehicle ${vehicle.Code}:`, err);
+        }));
+
+        if (allEventsInBatch.length > 0) {
+          const { error: eErr } = await supabase
+            .from("autotrac_eventos")
+            .upsert(allEventsInBatch, { onConflict: "vehicle_code,macro_number,message_time", ignoreDuplicates: true });
+          if (eErr) console.error("Error batch upserting events:", eErr);
+          else totalEvents += allEventsInBatch.length;
         }
-      }));
-
-      // Execute bulk upserts for the entire batch
-      if (allEventsInBatch.length > 0) {
-        const { error: eErr } = await supabase
-          .from("autotrac_eventos")
-          .upsert(allEventsInBatch, { onConflict: "vehicle_code,macro_number,message_time", ignoreDuplicates: true });
-        if (eErr) console.error("Error batch upserting events:", eErr);
-        else totalEvents += allEventsInBatch.length;
-      }
-
-      if (allPositionsInBatch.length > 0) {
-        const { error: pErr } = await supabase
-          .from("autotrac_positions")
-          .upsert(allPositionsInBatch, { onConflict: "vehicle_code" });
-        if (pErr) console.error("Error batch upserting positions:", pErr);
-        else totalPositions += allPositionsInBatch.length;
+        
+        // Check if we are approaching timeout
+        // (Wait/Stop if needed, but for 500 vehicles and 20 per batch = 25 calls, should be fine in 60s)
       }
     }
 
