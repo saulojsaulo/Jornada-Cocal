@@ -46,6 +46,7 @@ interface JourneyStore {
   motoristas: any[];
   cadastros: any[];
   autotracVehicles: any[];
+  resumo: any[];
 }
 
 const JourneyContext = createContext<JourneyStore | null>(null);
@@ -82,6 +83,7 @@ const HMR_FALLBACK_STORE: JourneyStore = {
   motoristas: [],
   cadastros: [],
   autotracVehicles: [],
+  resumo: [],
 };
 
 export function JourneyProvider({ children }: { children: React.ReactNode }) {
@@ -99,6 +101,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   const [motoristas, setMotoristas] = useState<any[]>([]);
   const [cadastros, setCadastros] = useState<any[]>([]);
   const [autotracVehicles, setAutotracVehicles] = useState<any[]>([]);
+  const [resumo, setResumo] = useState<any[]>([]);
   
   const queryClient = useQueryClient();
   const { data: queryData, isLoading: queryLoading, error: queryError, isFetching: querySyncing } = useDashboardData(7); // Fetch 7 days for full visibility
@@ -178,6 +181,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       setDriverDayMarks(dMarks);
       
       setLastSyncAt(new Date(queryData.syncedAt));
+      setResumo(queryData.resumo || []);
       setError(null);
     }
   }, [queryData]);
@@ -398,9 +402,9 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
       folgaVehicles,
       toggleFolga,
       vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac,
-      dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles
+      dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles, resumo
     }),
-    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles, queryLoading, querySyncing]
+    [vehicles, events, selectedDate, addEvents, getVehicleEvents, getVehicleJourneys, getDriverJourneys, getAllJourneys, clearData, isLoading, isSyncing, error, folgaVehicles, toggleFolga, vehiclePositions, refreshData, lastSyncAt, syncFromAutotrac, dayMarks, driverDayMarks, getDayMark, getDriverDayMark, motoristas, cadastros, autotracVehicles, queryLoading, querySyncing, resumo]
   );
 
   return <JourneyContext.Provider value={value}>{children}</JourneyContext.Provider>;

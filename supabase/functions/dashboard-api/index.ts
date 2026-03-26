@@ -13,10 +13,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error("Missing Env");
-
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     let debugTag = "start";
 
@@ -36,7 +34,6 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Action not supported" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ROBUST DATE PARSING
     const url = new URL(req.url);
     const daysRaw = url.searchParams.get("days");
     const daysWindow = daysRaw ? parseInt(daysRaw) : 2;
@@ -61,39 +58,29 @@ Deno.serve(async (req) => {
 
     const startIso = start.toISOString();
     const endIso = end.toISOString();
-    const driverSenha = url.searchParams.get("driverSenha");
 
-    console.log(`[GET] ${startIso} to ${endIso}`);
+    // --- NEW HIGH-PERFORMANCE LOGIC: Use dashboard_resumo ---
+    debugTag = "fetch_resumo";
+    const { data: resumo, error: rErr } = await supabase
+      .from("dashboard_resumo")
+      .select("*")
+      .order("updated_at", { ascending: false });
+    
+    if (rErr) throw rErr;
 
-    // Sequential Fetch
+    // We still fetch vehicles for metadata if needed
     debugTag = "fetch_vehicles";
     const { data: vehicles } = await supabase.from("autotrac_vehicles").select("id, vehicle_code, name, plate, account_number").order("name");
     
-    debugTag = "fetch_cadastros";
-    const { data: cadastros } = await supabase.from("cadastros").select("id, veiculo_id, motorista_nome, gestor_nome, numero_frota").eq("ativo", true);
-    
-    debugTag = "fetch_motoristas";
-    const { data: motoristas } = await supabase.from("motoristas").select("id, nome, senha");
-
-    debugTag = "fetch_events";
-    let eventQuery = supabase.from("autotrac_eventos")
-      .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password") // REMOVED raw_data (too heavy)
-      .gte("message_time", startIso)
-      .lte("message_time", endIso)
-      .order("message_time", { ascending: false }) // NEWEST FIRST
-      .limit(5000); // Safe limit for Edge Functions memory
-
-    if (driverSenha) {
-      eventQuery = eventQuery.or(`driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%`);
-    }
-    const { data: rawEvents } = await eventQuery;
-
-    debugTag = "fetch_positions";
-    const { data: positions } = await supabase.from("autotrac_posicoes").select("vehicle_code, landmark, latitude, longitude, position_time");
-
+    // Fetch overrides for the window
     debugTag = "fetch_overrides";
     const { data: overrides } = await supabase.from("macro_overrides").select("*").gte("event_time", startIso).lte("event_time", endIso);
 
+    // Fetch positions separately to ensure most recent (if needed, but resume has it)
+    debugTag = "fetch_positions";
+    const { data: positions } = await supabase.from("autotrac_posicoes").select("vehicle_code, landmark, latitude, longitude, position_time");
+
+    // Fetch telemetry summary
     debugTag = "fetch_telemetry";
     let telemetry: any[] = [];
     const vehicleCodes = (vehicles || []).map(v => v.vehicle_code);
@@ -107,35 +94,32 @@ Deno.serve(async (req) => {
       telemetry = telData || [];
     }
 
-    // Process data: Sort events back to ASC for frontend timeline logic
-    const events = (rawEvents || [])
-      .map(e => {
-        const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
-        return { ...e, driver_id: driver?.id || null, driver_name: driver?.nome || null };
-      })
-      .sort((a, b) => new Date(a.message_time).getTime() - new Date(b.message_time).getTime());
+    // Since the frontend expects "events" for the timeline, we still need some events
+    // BUT we fetch them PAGINATED or limited to a very small amount for "latest activity"
+    debugTag = "fetch_recent_events";
+    const { data: recentEvents } = await supabase
+      .from("autotrac_eventos")
+      .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password")
+      .gte("message_time", startIso)
+      .lte("message_time", endIso)
+      .order("message_time", { ascending: false })
+      .limit(1000); // 1,000 is safe and enough for "recent" view
 
-    debugTag = "success_response";
     return new Response(JSON.stringify({
       success: true,
+      resumo: resumo || [], // New summary table
       vehicles: vehicles || [],
-      cadastros: cadastros || [],
-      motoristas: motoristas || [],
-      events,
+      events: recentEvents || [],
       positions: positions || [],
       overrides: overrides || [],
       telemetry: telemetry || [],
       syncedAt: new Date().toISOString()
     }), {
-      headers: { 
-        ...corsHeaders, 
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store, max-age=0" // Force no-cache
-      }
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" },
     });
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ success: false, error: err.message, tag: debugTag }), {
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

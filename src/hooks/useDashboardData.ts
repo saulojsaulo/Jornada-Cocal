@@ -10,6 +10,7 @@ export interface DashboardData {
   positions: any[];
   overrides: any[];
   telemetry: any[];
+  resumo?: any[];
   syncedAt: string;
 }
 

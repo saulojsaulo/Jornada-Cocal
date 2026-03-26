@@ -23,10 +23,11 @@ interface DriverRowData {
   calc: JourneyCalculation | null;
   lastEventTime: Date | null;
   continuousDrivingMinutes: number;
+  rData?: any;
 }
 
 export default function ControleTab() {
-  const { vehicles, getAllJourneys, selectedDate, folgaVehicles, toggleFolga, vehiclePositions, getDayMark } = useJourneyStore();
+  const { vehicles, getAllJourneys, selectedDate, folgaVehicles, toggleFolga, vehiclePositions, getDayMark, resumo } = useJourneyStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showPrevDay, setShowPrevDay] = useState<Record<string, boolean>>({});
   const [sortField, setSortField] = useState<string>("driver");
@@ -50,7 +51,6 @@ export default function ControleTab() {
 
   const rows = useMemo<DriverRowData[]>(() => {
     const allJourneys = getAllJourneys();
-    // Group journeys by driverId
     const byDriver = new Map<string, Journey[]>();
     for (const j of allJourneys) {
       const key = j.driverId || `vehicle_${j.vehicleId}`;
@@ -58,15 +58,19 @@ export default function ControleTab() {
       byDriver.get(key)!.push(j);
     }
 
-    return Array.from(byDriver.entries()).map(([driverId, journeys]) => {
+    // MAP SUMMARY AS PRIMARY SOURCE
+    const resumoMap = new Map(resumo.map(r => [String(r.vehicle_code), r]));
+    
+    // Create rows based on ALL active vehicles (fromvehicles list)
+    return vehicles.map(vehicle => {
+      const vehicleCode = vehicle.id; // Corrected to use vehicle.id which is code
+      const rData = resumoMap.get(vehicleCode);
+      const journeys = byDriver.get(vehicle.driverName || `vehicle_${vehicleCode}`) || [];
       const sortedByTime = [...journeys].sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
-      const latestJourney = sortedByTime[0];
-      const driverName = latestJourney?.driverName || driverId;
-      const vehicleId = latestJourney?.vehicleId || "";
-      const vehicle = vehicleById.get(vehicleId) || null;
-      const vehicleName = vehicle?.name || vehicleId;
+      
+      const driverName = rData?.motorista_nome || vehicle.driverName || vehicleCode;
+      const vehicleName = vehicle.name;
 
-      const selectedDayStart = new Date(`${selectedDate}T00:00:00`);
       const todayJourney = journeys
         .filter(j => j.date === selectedDate)
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
@@ -82,6 +86,16 @@ export default function ControleTab() {
       let calc: JourneyCalculation | null = null;
       let lastEventTime: Date | null = null;
       let continuousDrivingMinutes = 0;
+
+      // Map Status from Resumo to our internal status type
+      const statusMap: Record<string, string> = {
+        "Em Jornada": "em_jornada",
+        "Fim de Jornada": "em_interjornada",
+        "Início Refeição": "em_refeicao",
+        "Fim Refeição": "em_jornada",
+        "Início Repouso": "em_descanso",
+        "Início Espera": "em_espera"
+      };
 
       if (todayJourney) {
         calc = calculateJourneyForDate(todayJourney, selectedDate, now);
@@ -103,11 +117,42 @@ export default function ControleTab() {
         if (lastDriveStart && calc.status === "em_jornada") {
           continuousDrivingMinutes = (now.getTime() - lastDriveStart.getTime()) / 60000;
         }
+      } else if (rData) {
+        // Build a minimal calc object from resumo if no live journeys available
+        calc = {
+          status: (statusMap[rData.status_atual] as any) || "em_interjornada",
+          netMinutes: 0,
+          grossMinutes: 0,
+          overtimeMinutes: 0,
+          mealMinutes: 0,
+          restMinutes: 0,
+          waitingMinutes: 0,
+          remainingMinutes: 600,
+          isOvertime: false,
+          mealAlert: false,
+          interjournadaAlert: "none",
+          interjournadaMinutes: 660,
+          nightMinutes: 0,
+          totalHours: "00:00",
+          extraHours: "00:00"
+        };
       }
 
-      return { driverId, driverName, vehicleName, vehicle, journeys, todayJourney, prevJourney, calc, lastEventTime, continuousDrivingMinutes };
+      return { 
+        driverId: vehicle.driverName || `vehicle_${vehicleCode}`, 
+        driverName, 
+        vehicleName, 
+        vehicle, 
+        journeys, 
+        todayJourney, 
+        prevJourney, 
+        calc, 
+        lastEventTime, 
+        continuousDrivingMinutes,
+        rData // Passing summary data for UI fallback
+      };
     });
-  }, [getAllJourneys, vehicles, vehicleById, selectedDate, now]);
+  }, [getAllJourneys, vehicles, resumo, selectedDate, now]);
 
   // Get unique gestor names for filter
   const gestorList = useMemo(() => {
@@ -478,7 +523,7 @@ function RowGroup({
         </td>
         <td
           className="px-2 py-0 text-[11px] max-w-[280px] truncate"
-          title={vehiclePosition?.endereco || "—"}
+          title={vehiclePosition?.endereco || row.rData?.ultima_posicao_texto || "—"}
           onClick={(e) => {
             e.stopPropagation();
             if (vehiclePosition?.latitude != null && vehiclePosition?.longitude != null) {
@@ -490,6 +535,8 @@ function RowGroup({
             <span className={vehiclePosition.latitude != null ? "text-primary hover:underline cursor-pointer" : "text-muted-foreground"}>
               📍 {vehiclePosition.endereco}
             </span>
+          ) : row.rData?.ultima_posicao_texto ? (
+            <span className="text-muted-foreground">📍 {row.rData.ultima_posicao_texto}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
@@ -497,7 +544,9 @@ function RowGroup({
         <td className="px-2 py-0 text-[11px] text-muted-foreground whitespace-nowrap">
           {vehiclePosition?.dataPosicao
             ? new Date(vehiclePosition.dataPosicao).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-            : "—"}
+            : row.rData?.updated_at 
+              ? new Date(row.rData.updated_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+              : "—"}
         </td>
         <td className="px-2 py-0 font-mono text-[11px] font-semibold text-right tabular-nums">{calc ? formatMinutes(calc.netMinutes) : "00:00"}</td>
         <td className="px-2 py-0 font-mono text-[11px] font-bold text-status-journey text-right tabular-nums">{calc ? formatMinutes(calc.remainingMinutes) : "12:00"}</td>
