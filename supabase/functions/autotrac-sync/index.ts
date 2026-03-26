@@ -57,7 +57,9 @@ async function autotracFetch(path: string, apiKey: string, authHeader: string): 
 
   const headers: Record<string, string> = {
     "Ocp-Apim-Subscription-Key": apiKey.trim(),
-    Authorization: authHeader.trim(),
+    "Authorization": authHeader, // Testing literal 'Basic user:pass' as per doc
+    "Content-Type": "application/json",
+    "Accept": "application/json",
   };
 
   const resp = await fetch(url, { headers });
@@ -98,8 +100,10 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const credentials = `${AUTOTRAC_USERNAME}:${AUTOTRAC_PASSWORD}`;
-    const authHeader = `Basic ${btoa(credentials)}`;
-    console.log(`Auth configured for: ${AUTOTRAC_USERNAME}`);
+    // DOCUMENTATION SAYS: "inserindo a palavra 'Basic' e o espaço, antes do nome de usuário e senha"
+    // It doesn't mention Base64. Let's try literal first.
+    const authHeader = `Basic ${credentials}`; 
+    console.log(`Auth using literal format for: ${AUTOTRAC_USERNAME}`);
 
     try {
       const body = await req.json();
