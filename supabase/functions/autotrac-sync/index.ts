@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
   }
 
   try {
+    let isQuick = false;
     const AUTOTRAC_API_KEY = Deno.env.get("AUTOTRAC_API_KEY");
     if (!AUTOTRAC_API_KEY) throw new Error("AUTOTRAC_API_KEY not configured");
 
@@ -102,7 +103,6 @@ Deno.serve(async (req) => {
     const authHeader = `Basic ${btoa(credentials)}`;
     console.log(`Auth configured for: ${AUTOTRAC_USERNAME}`);
 
-    let isQuick = false;
     try {
       const body = await req.json();
       isQuick = body?.quick === true;
@@ -272,8 +272,16 @@ Deno.serve(async (req) => {
   } catch (error: unknown) {
     console.error("Sync error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ success: false, error: message }), {
-      status: 500,
+    // Return 200 with success:false so the browser doesn't swallow the error body
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: message,
+      debug: {
+        timestamp: new Date().toISOString(),
+        isQuick: typeof isQuick !== 'undefined' ? isQuick : 'unknown'
+      }
+    }), {
+      status: 200, 
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

@@ -200,16 +200,18 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData]);
 
   const syncFromAutotrac = useCallback(async () => {
-    // Sincronização agora é gerida pelo backend (Edge Functions + pg_cron)
-    // Para manter compatibilidade de UI se alguém clicar no botão "Sincronizar":
     toast.info("Iniciando sincronização forçada via Edge Function...");
-    const { error } = await supabase.functions.invoke("autotrac-sync", {
+    const { data: syncData, error } = await supabase.functions.invoke("autotrac-sync", {
       body: { quick: true }
     });
+    
     if (error) {
-      toast.error("Falha ao disparar sincronização manual");
+      toast.error(`Falha ao disparar sincronização manual: ${error.message || "Erro de rede"}`);
+    } else if (syncData?.success === false) {
+      toast.error(`Erro na sincronização: ${syncData.error || "Erro desconhecido"}`);
+      console.error("[API] Detalhes do erro de sincronização:", syncData);
     } else {
-      toast.success("Comando de sincronização enviado com sucesso");
+      toast.success("Sincronização forçada concluída com sucesso!");
       refreshData();
     }
   }, [refreshData]);
