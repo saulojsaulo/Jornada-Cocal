@@ -55,14 +55,16 @@ async function autotracFetch(path: string, apiKey: string, authHeader: string): 
   console.log(`Fetching: ${url}`);
   console.log(`Auth header: ${authHeader.substring(0, 20)}...`);
 
-  const resp = await fetch(url, {
-    headers: {
-      "Ocp-Apim-Subscription-Key": apiKey,
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Ocp-Apim-Subscription-Key": apiKey,
+    Authorization: authHeader,
+    Accept: "application/json",
+  };
+
+  // Only add Content-Type for POST/PUT if needed, but not for GET
+  // resp = await fetch(url, { headers });
+  
+  const resp = await fetch(url, { headers });
 
   if (!resp.ok) {
     const text = await resp.text();

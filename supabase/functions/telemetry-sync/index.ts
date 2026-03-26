@@ -32,13 +32,14 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 
 async function autotracFetch(path: string, apiKey: string, authHeader: string): Promise<any> {
   const url = `${AUTOTRAC_BASE_URL}${path}`;
-  const resp = await fetch(url, {
-    headers: {
-      "Ocp-Apim-Subscription-Key": apiKey,
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+  const headers: Record<string, string> = {
+    "Ocp-Apim-Subscription-Key": apiKey,
+    Authorization: authHeader,
+    Accept: "application/json",
+  };
+
+  const resp = await fetch(url, { 
+    headers,
     signal: AbortSignal.timeout(30000),
   });
 
@@ -46,12 +47,7 @@ async function autotracFetch(path: string, apiKey: string, authHeader: string): 
     // Rate limited – wait and retry once
     await new Promise((r) => setTimeout(r, 2000));
     const retry = await fetch(url, {
-      headers: {
-        "Ocp-Apim-Subscription-Key": apiKey,
-        Authorization: authHeader,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       signal: AbortSignal.timeout(30000),
     });
     if (!retry.ok) {
