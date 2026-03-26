@@ -80,8 +80,8 @@ Deno.serve(async (req) => {
       .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password, raw_data")
       .gte("message_time", startIso)
       .lte("message_time", endIso)
-      .order("message_time", { ascending: true })
-      .limit(2000);
+      .order("message_time", { ascending: false }) // Get NEWEST first
+      .limit(10000); // Increase limit for 184 vehicles
 
     if (driverSenha) {
       eventQuery = eventQuery.or(`driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%`);
@@ -107,18 +107,31 @@ Deno.serve(async (req) => {
       telemetry = telData || [];
     }
 
+    // Process data: Sort events back to ASC for frontend timeline logic
+    const events = (rawEvents || [])
+      .map(e => {
+        const driver = e.driver_password ? driverBySenha.get(e.driver_password) : null;
+        return { ...e, driver_id: driver?.id || null, driver_name: driver?.nome || null };
+      })
+      .sort((a, b) => new Date(a.message_time).getTime() - new Date(b.message_time).getTime());
+
+    debugTag = "success_response";
     return new Response(JSON.stringify({
       success: true,
       vehicles: vehicles || [],
       cadastros: cadastros || [],
       motoristas: motoristas || [],
-      events: rawEvents || [],
+      events,
       positions: positions || [],
       overrides: overrides || [],
-      telemetry: telemetry,
+      telemetry: telemetry || [],
       syncedAt: new Date().toISOString()
     }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { 
+        ...corsHeaders, 
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, max-age=0" // Force no-cache
+      }
     });
 
   } catch (err: any) {
