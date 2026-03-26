@@ -77,11 +77,11 @@ Deno.serve(async (req) => {
 
     debugTag = "fetch_events";
     let eventQuery = supabase.from("autotrac_eventos")
-      .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password, raw_data")
+      .select("id, vehicle_code, macro_number, message_time, landmark, latitude, longitude, driver_password") // REMOVED raw_data (too heavy)
       .gte("message_time", startIso)
       .lte("message_time", endIso)
-      .order("message_time", { ascending: false }) // Get NEWEST first
-      .limit(10000); // Increase limit for 184 vehicles
+      .order("message_time", { ascending: false }) // NEWEST FIRST
+      .limit(5000); // Safe limit for Edge Functions memory
 
     if (driverSenha) {
       eventQuery = eventQuery.or(`driver_password.eq.${driverSenha},raw_data->>MessageText.ilike.%_${driverSenha}%`);
